@@ -123,6 +123,18 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
 .card-photo .photo-fallback{display:none; font-size:46px;}
 .card-photo.no-photo .photo-fallback{display:flex;}
 
+.card-stack{position:relative; margin:0 16px 16px 0;}
+.card-stack.stack-1::before{
+  content:""; position:absolute; inset:0; border-radius:16px; z-index:-1; opacity:.75;
+  background:linear-gradient(180deg, var(--gold-2) 0%, #c97810 100%);
+  transform:translate(7px,7px) rotate(1.6deg);
+}
+.card-stack.stack-2::after{
+  content:""; position:absolute; inset:0; border-radius:16px; z-index:-2; opacity:.5;
+  background:linear-gradient(180deg, var(--gold-2) 0%, #b56d0d 100%);
+  transform:translate(14px,14px) rotate(3.2deg);
+}
+
 .stat-row{
   display:flex; align-items:center; justify-content:space-between;
   background:rgba(255,255,255,0.92); color:#22252f; border-radius:8px;
@@ -571,6 +583,14 @@ function attachFanHandlers(onConfirm){
   if(btn) btn.onclick = ()=>{ if(selected) onConfirm(selected); };
 }
 
+function cardStackWrap(innerHtml, count){
+  const layers = Math.min(Math.max(count-1,0), 2);
+  let cls = 'card-stack';
+  if(layers>=1) cls += ' stack-1';
+  if(layers>=2) cls += ' stack-2';
+  return `<div class="${cls}">${innerHtml}</div>`;
+}
+
 /* ============ SPIELLOGIK ============ */
 function eligibleForFan(id, data){
   const s = data.settings||{};
@@ -621,13 +641,6 @@ function renderGame(data){
     const stillPending = (data.pendingSelectors||[]).filter(id=>!roundCard[id]);
     if(stillPending.length===0){ resolving=true; finalizeReveal(data, data.chosenCategory); }
   }
-  if(data.phase==='result' && data.lastResult){
-    if(data.lastResult.tie && data._resolverId===myId && !resolving){
-      resolving=true; setTimeout(()=>advanceAfterResult(data), 2600);
-    } else if(!data.lastResult.tie && data.lastResult.winnerId===myId && !resolving){
-      resolving=true; setTimeout(()=>advanceAfterResult(data), 2600);
-    }
-  }
 }
 
 function renderChoosingPhase(data, cats, myQueue, isMyTurn, activeName){
@@ -642,14 +655,14 @@ function renderChoosingPhase(data, cats, myQueue, isMyTurn, activeName){
         </div>`;
     }
     const myCard = CARD_MAP[(data.roundCard||{})[myId] || myQueue[0]];
-    return `<div class="turn-banner">🎯 Du bist dran! Wähle eine Kategorie.</div>${renderBeerCard(myCard, true, cats)}`;
+    return `<div class="turn-banner">🎯 Du bist dran! Wähle eine Kategorie.</div>${cardStackWrap(renderBeerCard(myCard, true, cats), myQueue.length)}`;
   }
   const banner = `<div class="turn-banner">${activeName} überlegt gerade…</div>`;
   if(eligibleForFan(myId, data)){
     return banner + `<div class="card-panel hint">Du darfst gleich (nach der Kategorie-Wahl) aus deinen letzten ${myQueue.length} Karten wählen.</div>`;
   }
   const myCard = CARD_MAP[myQueue[0]];
-  return banner + renderBeerCard(myCard, false, cats);
+  return banner + cardStackWrap(renderBeerCard(myCard, false, cats), myQueue.length);
 }
 function attachChoosingHandlers(data, isMyTurn){
   if(!isMyTurn) return;
@@ -748,7 +761,13 @@ function renderResultTie(data, cats){
     const c = CARD_MAP[reveal[id]];
     html += `<div class="mini-card ${id===myId?'you-row':''}"><span>${c.emoji} ${players[id]?players[id].name:'?'}${id===myId?' (du)':''}</span><span class="val">${fmtVal(cat,c[data.chosenCategory])}</span></div>`;
   });
-  html += `<div class="pot-note">Gleichstand! Karten wandern in den Pott, nächste Runde direkt weiter…</div></div>`;
+  html += `<div class="pot-note">Gleichstand! Karten wandern in den Pott, nächste Runde direkt weiter…</div>`;
+  if(data._resolverId===myId){
+    html += `<button class="btn-primary" id="continueBtn">Weiter ➡️</button>`;
+  } else {
+    html += `<div class="hint">Warte, bis es weitergeht…</div>`;
+  }
+  html += `</div>`;
   return html;
 }
 function renderResultNonTie(data, cats){
@@ -766,11 +785,23 @@ function renderResultNonTie(data, cats){
   });
   const wName = players[winnerId] ? players[winnerId].name : '?';
   html += `<div class="result-msg">${wName} kassiert alle Karten!</div>`;
+  if(winnerId===myId){
+    html += `<button class="btn-primary" id="continueBtn">Weiter ➡️</button>`;
+  } else {
+    html += `<div class="hint">Warte auf ${wName}…</div>`;
+  }
   html += `</div>`;
   return html;
 }
 function attachResultHandlers(data){
-  // keine Interaktion nötig — Ergebnis wird automatisch ausgewertet
+  const btn = document.getElementById('continueBtn');
+  if(btn){
+    btn.onclick = ()=>{
+      if(resolving) return;
+      resolving = true;
+      advanceAfterResult(data);
+    };
+  }
 }
 
 function advanceAfterResult(data){
