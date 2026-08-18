@@ -625,9 +625,7 @@ function renderGame(data){
     if(data.lastResult.tie && data._resolverId===myId && !resolving){
       resolving=true; setTimeout(()=>advanceAfterResult(data), 2600);
     } else if(!data.lastResult.tie && data.lastResult.winnerId===myId && !resolving){
-      const losers = order.filter(id=> id in (data.revealCards||{}) && id!==data.lastResult.winnerId);
-      const handovers = data.handovers||{};
-      if(losers.every(id=>handovers[id])){ resolving=true; setTimeout(()=>advanceAfterResult(data), 900); }
+      resolving=true; setTimeout(()=>advanceAfterResult(data), 2600);
     }
   }
 }
@@ -755,107 +753,24 @@ function renderResultTie(data, cats){
 }
 function renderResultNonTie(data, cats){
   const reveal = data.revealCards||{}; const winnerId = data.lastResult.winnerId;
-  const handovers = data.handovers||{}; const players = data.players;
+  const players = data.players;
   const cat = cats.find(c=>c.key===data.chosenCategory);
   let html = `<div class="card-panel"><div class="result-msg">Kategorie: ${cat.label}</div>`;
   data.order.forEach(id=>{
     if(!(id in reveal)) return;
     const c = CARD_MAP[reveal[id]];
-    const isWinner = id===winnerId; const given = handovers[id];
+    const isWinner = id===winnerId;
     html += `<div class="mini-card ${isWinner?'win-row':''} ${id===myId?'you-row':''}">
-      <span>${isWinner?'🏆 ':''}${c.emoji} ${players[id]?players[id].name:'?'}${id===myId?' (du)':''}${(!isWinner&&given)?' ✅':''}</span>
+      <span>${isWinner?'🏆 ':''}${c.emoji} ${players[id]?players[id].name:'?'}${id===myId?' (du)':''}</span>
       <span class="val">${fmtVal(cat, c[data.chosenCategory])}</span></div>`;
   });
+  const wName = players[winnerId] ? players[winnerId].name : '?';
+  html += `<div class="result-msg">${wName} kassiert alle Karten!</div>`;
   html += `</div>`;
-
-  if(winnerId===myId){
-    const losers = data.order.filter(id=> id in reveal && id!==winnerId);
-    const remaining = losers.filter(id=>!handovers[id]);
-    html += `<div class="turn-banner">Du gewinnst diese Runde! ${remaining.length? 'Warte auf: '+remaining.map(id=>players[id]?players[id].name:'?').join(', ') : 'Alle Karten kommen gleich zu dir.'}</div>`;
-  } else if(!handovers[myId]){
-    const myCard = CARD_MAP[reveal[myId]];
-    html += `<div class="turn-banner">Du hast verloren — gib deine Karte ab!</div>
-      <div class="swipe-zone">
-        <div class="swipe-card" id="swipeCard">
-          <span>${myCard.emoji} ${myCard.name}</span>
-          <span class="val">${fmtVal(cat, myCard[data.chosenCategory])}</span>
-        </div>
-      </div>
-      <div class="swipe-hint">Nach rechts wischen ➡️</div>`;
-  } else {
-    html += `<div class="turn-banner">Abgegeben ✅ Warte auf die anderen…</div>`;
-  }
   return html;
 }
 function attachResultHandlers(data){
-  if(data.lastResult.tie) return;
-  if(data.lastResult.winnerId===myId) return;
-  if((data.handovers||{})[myId]) return;
-  const sc = document.getElementById('swipeCard');
-  if(sc) attachSwipe(sc, ()=>openHandoverPopup(data));
-}
-
-function attachSwipe(el, onComplete){
-  let startX=0, dx=0, dragging=false;
-  const threshold=90;
-  function down(e){ dragging=true; startX=(e.touches?e.touches[0].clientX:e.clientX); el.style.transition='none'; el.style.cursor='grabbing'; }
-  function move(e){
-    if(!dragging) return;
-    const x=(e.touches?e.touches[0].clientX:e.clientX);
-    dx = Math.max(0, x-startX);
-    el.style.left = dx+'px';
-    el.style.opacity = Math.max(0.3, 1-dx/300);
-  }
-  function up(){
-    if(!dragging) return;
-    dragging=false;
-    el.style.cursor='grab';
-    el.style.transition='left .2s, opacity .2s';
-    if(dx>threshold){
-      el.style.left='340px'; el.style.opacity='0';
-      setTimeout(onComplete, 150);
-    } else {
-      el.style.left='0px'; el.style.opacity='1';
-    }
-    dx=0;
-  }
-  el.addEventListener('mousedown', down);
-  el.addEventListener('touchstart', down, {passive:true});
-  el.addEventListener('mousemove', move);
-  el.addEventListener('touchmove', move, {passive:true});
-  window.addEventListener('mouseup', up);
-  el.addEventListener('touchend', up);
-}
-
-function openHandoverPopup(data){
-  const players = data.players; const winnerId = data.lastResult.winnerId;
-  const others = data.order.filter(id=>id!==myId && id in (data.revealCards||{}));
-  const overlay = document.createElement('div');
-  overlay.className='popup-overlay';
-  overlay.innerHTML = `<div class="popup-box">
-    <h3>Wer hatte den besseren Wert?</h3>
-    <div id="popupBtns"></div>
-    <div class="popup-err" id="popupErr" style="display:none;">Nicht richtig — versuch's nochmal.</div>
-    <button class="btn-secondary" id="popupCancel">Abbrechen</button>
-  </div>`;
-  document.body.appendChild(overlay);
-  const wrap = overlay.querySelector('#popupBtns');
-  others.forEach(id=>{
-    const b = document.createElement('button');
-    b.className='popup-player-btn';
-    b.textContent = players[id] ? players[id].name : '?';
-    b.onclick = ()=>{
-      if(id===winnerId){
-        roomRef.update({['handovers/'+myId]: true}).then(()=>{ if(overlay.parentNode) document.body.removeChild(overlay); });
-      } else {
-        overlay.querySelector('#popupErr').style.display='block';
-        b.classList.add('shake');
-        setTimeout(()=>b.classList.remove('shake'), 400);
-      }
-    };
-    wrap.appendChild(b);
-  });
-  overlay.querySelector('#popupCancel').onclick = ()=>{ if(overlay.parentNode) document.body.removeChild(overlay); };
+  // keine Interaktion nötig — Ergebnis wird automatisch ausgewertet
 }
 
 function advanceAfterResult(data){
