@@ -382,7 +382,7 @@ const footnote = document.getElementById('footnote');
 function beginResolving(){ resolving = true; resolvingSince = Date.now(); }
 // Absicherung: falls eine Firebase-Schreibaktion mal hängen bleibt, nicht dauerhaft blockieren
 setInterval(()=>{
-  if(resolving && Date.now()-resolvingSince>4000){
+  if(resolving && Date.now()-resolvingSince>6000){
     resolving = false;
     if(lastRoomData) renderRoom(lastRoomData);
   }
@@ -804,13 +804,21 @@ function runBotLogic(data){
           const pick = botBestCardCategory(queue, cats);
           roomRef.update({['roundCard/'+active]: pick.cardId}).then(()=>{
             chooseCategory(data, pick.catKey, active);
-          }).catch(()=>{ resolving=false; });
+          }).catch(err=>{
+            console.error('Bot-Fehler (Kartenwahl):', err);
+            resolving=false;
+            if(lastRoomData) renderRoom(lastRoomData);
+          });
         } else {
           const card = CARD_MAP[queue[0]];
           const catKey = botChooseCategory(card, cats);
           chooseCategory(data, catKey, active);
         }
-      } catch(e){ resolving=false; }
+      } catch(e){
+        console.error('Bot-Fehler (Kategoriewahl):', e);
+        resolving=false;
+        if(lastRoomData) renderRoom(lastRoomData);
+      }
     }, 3000);
     return;
   }
@@ -828,8 +836,16 @@ function runBotLogic(data){
           const q = (data.queues||{})[id]||[];
           updates['roundCard/'+id] = botBestCardForCategory(q, cat);
         });
-        roomRef.update(updates).then(()=>{ resolving=false; }).catch(()=>{ resolving=false; });
-      } catch(e){ resolving=false; }
+        roomRef.update(updates).then(()=>{ resolving=false; }).catch(err=>{
+          console.error('Bot-Fehler (Fächerwahl):', err);
+          resolving=false;
+          if(lastRoomData) renderRoom(lastRoomData);
+        });
+      } catch(e){
+        console.error('Bot-Fehler (Fächerwahl):', e);
+        resolving=false;
+        if(lastRoomData) renderRoom(lastRoomData);
+      }
     }, 3000);
     return;
   }
@@ -891,7 +907,12 @@ function chooseCategory(data, catKey, actingId){
     finalizeReveal(data, catKey, actingId);
   } else {
     roomRef.update({ chosenCategory: catKey, phase:'selecting', pendingSelectors: pending, _resolverId: actingId })
-      .then(()=>{ resolving=false; });
+      .then(()=>{ resolving=false; })
+      .catch(err=>{
+        console.error('Fehler (chooseCategory):', err);
+        resolving=false;
+        if(lastRoomData) renderRoom(lastRoomData);
+      });
   }
 }
 
@@ -945,7 +966,11 @@ function finalizeReveal(data, catKey, actingId){
     lastResult: { tie, winnerId: tie?null:bestId, tiedIds, wonCount: Object.keys(reveal).length + (data.potCards||[]).length },
     handovers: {},
     _resolverId: tie ? actingId : bestId,
-  }).then(()=>{ resolving=false; });
+  }).then(()=>{ resolving=false; }).catch(err=>{
+    console.error('Fehler (finalizeReveal):', err);
+    resolving=false;
+    if(lastRoomData) renderRoom(lastRoomData);
+  });
 }
 
 function renderResultTie(data, cats){
@@ -1034,7 +1059,8 @@ function advanceAfterResult(data){
   const withCards = order.filter(id=>(queues[id]||[]).length>0);
   if(withCards.length<=1){
     roomRef.update({ state:'finished', queues, winnerFinal: withCards[0]||nextPlayer, phase:'result' })
-      .then(()=>{ resolving=false; });
+      .then(()=>{ resolving=false; })
+      .catch(err=>{ console.error('Fehler (advanceAfterResult/finished):', err); resolving=false; if(lastRoomData) renderRoom(lastRoomData); });
     return;
   }
   if((queues[nextPlayer]||[]).length===0){
@@ -1050,7 +1076,8 @@ function advanceAfterResult(data){
     chosenCategory:null, revealCards:{}, potCards: nextPot,
     round: (data.round||1)+1, lastResult:null, handovers:{}, roundCard:{}, pendingSelectors:[],
     _resolverId:null,
-  }).then(()=>{ resolving=false; });
+  }).then(()=>{ resolving=false; })
+    .catch(err=>{ console.error('Fehler (advanceAfterResult):', err); resolving=false; if(lastRoomData) renderRoom(lastRoomData); });
 }
 
 function renderFinished(data){
