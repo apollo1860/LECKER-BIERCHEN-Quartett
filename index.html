@@ -162,20 +162,16 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
 .error-msg{color:#ff8a80; font-size:13px; margin:-6px 0 12px; text-align:center;}
 
 /* --- Kartenfächer (Sicherer Modus) --- */
-.fan-wrap{display:flex; justify-content:center; align-items:flex-end; padding:22px 0 10px; min-height:180px;}
+.fan-wrap{display:flex; justify-content:center; align-items:flex-end; flex-wrap:wrap; gap:12px; padding:14px 4px 10px;}
 .fan-card{
-  width:80px; background:linear-gradient(180deg,var(--gold-2),#d9860f); border-radius:10px; padding:6px;
-  margin-left:-20px; transform:rotate(var(--rot,0deg)); transition:.15s ease; box-shadow:0 4px 10px rgba(0,0,0,.3);
+  width:92px; background:linear-gradient(180deg,var(--gold-2),#d9860f); border-radius:10px; padding:6px;
+  transition:transform .12s ease; box-shadow:0 4px 10px rgba(0,0,0,.3);
   cursor:pointer;
 }
-.fan-card:first-child{margin-left:0;}
-.fan-card.fan-selected{
-  transform:translateY(-18px) scale(1.18) !important; box-shadow:0 0 0 3px var(--gold-1), 0 10px 22px rgba(0,0,0,.45);
-  z-index:5; margin-left:4px; margin-right:4px;
-}
+.fan-card:active{transform:scale(0.96);}
 .fan-photo{width:100%; aspect-ratio:3/4; border-radius:6px; overflow:hidden; background:rgba(0,0,0,.15); display:flex; align-items:center; justify-content:center; margin-bottom:4px;}
 .fan-photo img{width:100%; height:100%; object-fit:cover;}
-.fan-name{font-size:8.5px; font-weight:700; color:#3a2205; text-align:center; line-height:1.15;}
+.fan-name{font-size:9.5px; font-weight:700; color:#3a2205; text-align:center; line-height:1.15;}
 
 /* --- Wisch-Karte --- */
 .swipe-zone{background:#1c2029; border-radius:14px; padding:12px; overflow:hidden; position:relative;}
@@ -710,9 +706,7 @@ function renderFan(cardIds){
 }
 function attachFanHandlers(cats, onConfirm){
   const cards = document.querySelectorAll('.fan-wrap .fan-card');
-  cards.forEach((el,i)=>{
-    const rot = (i-(cards.length-1)/2)*9;
-    el.style.setProperty('--rot', rot+'deg');
+  cards.forEach((el)=>{
     el.onclick = ()=>{
       openFanCardPreview(CARD_MAP[el.dataset.cid], cats, onConfirm);
     };
