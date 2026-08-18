@@ -788,7 +788,7 @@ function renderGame(data){
       if(stillPending.length===0){ beginResolving(); finalizeReveal(data, data.chosenCategory, data._resolverId); }
     }
   }
-  runBotLogic(data);
+  maybeScheduleAutoKickstart(data);
 }
 
 /* ============ BOT-STEUERUNG (übernommen vom Host-Client) ============ */
@@ -844,6 +844,7 @@ function executeBotSelectingTurn(data, botPending, cat){
 }
 // Manueller Kickstart: Mensch kann den Bot jederzeit zwingen, sofort zu entscheiden
 function kickstartBot(data){
+  if(autoKickTimer){ clearTimeout(autoKickTimer); autoKickTimer=null; autoKickSignature=null; }
   resolving = false; // erzwingt Reset, falls irgendwo hängengeblieben
   const cats = getCats(data.settings);
   if(data.phase==='choosing'){
@@ -861,31 +862,44 @@ function kickstartBot(data){
   }
 }
 
-function runBotLogic(data){
-  if(data.hostId!==myId || resolving) return;
-  const cats = getCats(data.settings);
-
+// Berechnet eine eindeutige "Signatur" für die aktuell anstehende Bot-Entscheidung.
+// Ändert sich die Signatur (neue Runde/Kategorie/Spieler), wird ein neuer Timer geplant.
+function computeBotSignature(data){
   if(data.phase==='choosing'){
-    const active = data.currentPlayer;
-    if(!isBot(active, data)) return;
-    const queue = (data.queues||{})[active]||[];
-    if(queue.length===0) return;
-    beginResolving();
-    setTimeout(()=>executeBotChoosingTurn(data, active, cats), 3000);
-    return;
+    if(!isBot(data.currentPlayer, data)) return null;
+    const tb = data.tiebreak;
+    return 'choosing|'+data.currentPlayer+'|'+data.round+'|'+(tb?tb.triedCategories.join(','):'');
   }
-
   if(data.phase==='selecting'){
     const pending = (data.pendingSelectors||[]).filter(id=>!(data.roundCard||{})[id]);
     const botPending = pending.filter(id=>isBot(id, data));
-    if(botPending.length===0) return;
-    beginResolving();
-    const cat = cats.find(c=>c.key===data.chosenCategory);
-    setTimeout(()=>executeBotSelectingTurn(data, botPending, cat), 3000);
+    if(botPending.length===0) return null;
+    return 'selecting|'+data.round+'|'+(data.chosenCategory||'')+'|'+botPending.join(',');
+  }
+  return null;
+}
+
+// Läuft bei jedem Rendering: plant (unabhängig vom resolving-Flag) einen 3s-Auto-Kickstart
+// für die aktuell anstehende Bot-Entscheidung, sofern noch keiner dafür läuft.
+let autoKickTimer = null;
+let autoKickSignature = null;
+function maybeScheduleAutoKickstart(data){
+  if(data.hostId!==myId) return;
+  const sig = computeBotSignature(data);
+  if(!sig){
+    if(autoKickTimer){ clearTimeout(autoKickTimer); autoKickTimer=null; }
+    autoKickSignature = null;
     return;
   }
-
-  // Kein automatisches Weiterklicken für Bots — das übernimmt der Mensch per "Weiter"-Button.
+  if(sig===autoKickSignature && autoKickTimer) return; // für diesen Zustand schon geplant
+  if(autoKickTimer) clearTimeout(autoKickTimer);
+  autoKickSignature = sig;
+  autoKickTimer = setTimeout(()=>{
+    autoKickTimer = null;
+    if(lastRoomData && computeBotSignature(lastRoomData)===sig){
+      kickstartBot(lastRoomData);
+    }
+  }, 3000);
 }
 
 function renderChoosingPhase(data, cats, myQueue, isMyTurn, activeName){
