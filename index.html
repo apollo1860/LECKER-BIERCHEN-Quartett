@@ -708,22 +708,32 @@ function renderFan(cardIds){
   html += '</div>';
   return html;
 }
-function attachFanHandlers(onConfirm){
+function attachFanHandlers(cats, onConfirm){
   const cards = document.querySelectorAll('.fan-wrap .fan-card');
-  let selected = null;
   cards.forEach((el,i)=>{
     const rot = (i-(cards.length-1)/2)*9;
     el.style.setProperty('--rot', rot+'deg');
     el.onclick = ()=>{
-      cards.forEach(x=>x.classList.remove('fan-selected'));
-      el.classList.add('fan-selected');
-      selected = el.dataset.cid;
-      const btn = document.getElementById('fanConfirmBtn');
-      if(btn) btn.disabled=false;
+      openFanCardPreview(CARD_MAP[el.dataset.cid], cats, onConfirm);
     };
   });
-  const btn = document.getElementById('fanConfirmBtn');
-  if(btn) btn.onclick = ()=>{ if(selected) onConfirm(selected); };
+}
+function openFanCardPreview(card, cats, onConfirm){
+  const overlay = document.createElement('div');
+  overlay.className = 'popup-overlay';
+  overlay.innerHTML = `<div class="popup-box" style="max-width:320px; max-height:85vh; overflow-y:auto;">
+    ${renderBeerCard(card, false, cats)}
+    <button class="btn-primary" id="fanPreviewConfirm">Diese Karte spielen</button>
+    <button class="btn-secondary" id="fanPreviewCancel">Zurück</button>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#fanPreviewConfirm').onclick = ()=>{
+    document.body.removeChild(overlay);
+    onConfirm(card.id);
+  };
+  overlay.querySelector('#fanPreviewCancel').onclick = ()=>{
+    document.body.removeChild(overlay);
+  };
 }
 
 function cardStackWrap(innerHtml, count){
@@ -779,16 +789,26 @@ function renderGame(data){
   if(data.phase==='selecting') attachSelectingHandlers(data);
   if(data.phase==='result' && data.lastResult) attachResultHandlers(data);
 
-  // Auto-Fortschritt, wenn alle Auswahlen/Abgaben abgeschlossen sind
-  if(data.phase==='selecting' && !resolving){
-    const resolverIsMe = data._resolverId===myId;
-    const resolverIsBotViaHost = data.hostId===myId && isBot(data._resolverId, data);
-    if(resolverIsMe || resolverIsBotViaHost){
-      const stillPending = (data.pendingSelectors||[]).filter(id=>!roundCard[id]);
-      if(stillPending.length===0){ beginResolving(); finalizeReveal(data, data.chosenCategory, data._resolverId); }
-    }
-  }
+  maybeAutoFinalizeSelecting(data);
   maybeScheduleAutoKickstart(data);
+}
+
+// Sobald in der Fächerwahl-Phase alle nötigen Auswahlen vorliegen, muss der Zuständige
+// (Mensch oder — via Host — Bot) sofort auswerten. Läuft signaturbasiert, damit ein
+// kurzzeitig veraltetes resolving-Flag (Firebase-Timing) das nicht mehr blockieren kann.
+let lastAutoFinalizeSig = null;
+function maybeAutoFinalizeSelecting(data){
+  if(data.phase!=='selecting'){ lastAutoFinalizeSig = null; return; }
+  const resolverIsMe = data._resolverId===myId;
+  const resolverIsBotViaHost = data.hostId===myId && isBot(data._resolverId, data);
+  if(!(resolverIsMe || resolverIsBotViaHost)) return;
+  const roundCard = data.roundCard||{};
+  const stillPending = (data.pendingSelectors||[]).filter(id=>!roundCard[id]);
+  if(stillPending.length>0) return;
+  const sig = 'finalize|'+data.round+'|'+data.chosenCategory+'|'+data._resolverId;
+  if(lastAutoFinalizeSig===sig) return; // für diesen Zustand schon angestoßen
+  lastAutoFinalizeSig = sig;
+  finalizeReveal(data, data.chosenCategory, data._resolverId);
 }
 
 /* ============ BOT-STEUERUNG (übernommen vom Host-Client) ============ */
@@ -931,7 +951,7 @@ function renderChoosingPhase(data, cats, myQueue, isMyTurn, activeName){
     if(eligibleForFan(myId, data)){
       return `<div class="turn-banner">🎯 Du bist dran! Wähle zuerst deine Karte (letzte ${myQueue.length}).</div>
         <div class="card-panel">${renderFan(myQueue)}
-          <button class="btn-primary" id="fanConfirmBtn" disabled>Diese Karte spielen</button>
+          <div class="hint">Tippe eine Karte an, um sie groß mit allen Werten anzusehen</div>
         </div>`;
     }
     const myCard = CARD_MAP[(data.roundCard||{})[myId] || myQueue[0]];
@@ -962,7 +982,7 @@ function attachChoosingHandlers(data, isMyTurn){
     return;
   }
   if(eligibleForFan(myId, data)){
-    attachFanHandlers((cardId)=>{ roomRef.update({['roundCard/'+myId]: cardId}); });
+    attachFanHandlers(getCats(data.settings), (cardId)=>{ roomRef.update({['roundCard/'+myId]: cardId}); });
   } else {
     document.querySelectorAll('.stat-row.pickable').forEach(el=>{
       el.onclick = ()=>{
@@ -1008,7 +1028,7 @@ function renderSelectingPhase(data, cats){
     const myQueue = (data.queues||{})[myId]||[];
     return `<div class="turn-banner">Kategorie: ${cat.label} — wähle deine Karte!</div>
       <div class="card-panel">${renderFan(myQueue)}
-        <button class="btn-primary" id="fanConfirmBtn" disabled>Diese Karte spielen</button>
+        <div class="hint">Tippe eine Karte an, um sie groß mit allen Werten anzusehen</div>
       </div>`;
   }
   return `<div class="turn-banner">Kategorie: ${cat.label}</div>
@@ -1021,7 +1041,7 @@ function attachSelectingHandlers(data){
   if(kickBtn) kickBtn.onclick = ()=>kickstartBot(data);
   const pending = (data.pendingSelectors||[]).filter(id=>!(data.roundCard||{})[id]);
   if(pending.includes(myId)){
-    attachFanHandlers((cardId)=>{ roomRef.update({['roundCard/'+myId]: cardId}); });
+    attachFanHandlers(getCats(data.settings), (cardId)=>{ roomRef.update({['roundCard/'+myId]: cardId}); });
   }
 }
 
