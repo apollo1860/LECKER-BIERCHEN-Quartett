@@ -811,7 +811,7 @@ function runBotLogic(data){
           chooseCategory(data, catKey, active);
         }
       } catch(e){ resolving=false; }
-    }, 600);
+    }, 3000);
     return;
   }
 
@@ -830,7 +830,7 @@ function runBotLogic(data){
         });
         roomRef.update(updates).then(()=>{ resolving=false; }).catch(()=>{ resolving=false; });
       } catch(e){ resolving=false; }
-    }, 500);
+    }, 3000);
     return;
   }
 
