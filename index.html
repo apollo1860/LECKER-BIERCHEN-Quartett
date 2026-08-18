@@ -788,6 +788,67 @@ function renderGame(data){
 }
 
 /* ============ BOT-STEUERUNG (übernommen vom Host-Client) ============ */
+function executeBotChoosingTurn(data, active, cats){
+  const queue = (data.queues||{})[active]||[];
+  if(queue.length===0){ resolving=false; return; }
+  try{
+    if(eligibleForFan(active, data)){
+      const pick = botBestCardCategory(queue, cats);
+      roomRef.update({['roundCard/'+active]: pick.cardId}).then(()=>{
+        chooseCategory(data, pick.catKey, active);
+      }).catch(err=>{
+        console.error('Bot-Fehler (Kartenwahl):', err);
+        resolving=false;
+        if(lastRoomData) renderRoom(lastRoomData);
+      });
+    } else {
+      const card = CARD_MAP[queue[0]];
+      const catKey = botChooseCategory(card, cats);
+      chooseCategory(data, catKey, active);
+    }
+  } catch(e){
+    console.error('Bot-Fehler (Kategoriewahl):', e);
+    resolving=false;
+    if(lastRoomData) renderRoom(lastRoomData);
+  }
+}
+function executeBotSelectingTurn(data, botPending, cat){
+  try{
+    const updates = {};
+    botPending.forEach(id=>{
+      const q = (data.queues||{})[id]||[];
+      updates['roundCard/'+id] = botBestCardForCategory(q, cat);
+    });
+    roomRef.update(updates).then(()=>{ resolving=false; }).catch(err=>{
+      console.error('Bot-Fehler (Fächerwahl):', err);
+      resolving=false;
+      if(lastRoomData) renderRoom(lastRoomData);
+    });
+  } catch(e){
+    console.error('Bot-Fehler (Fächerwahl):', e);
+    resolving=false;
+    if(lastRoomData) renderRoom(lastRoomData);
+  }
+}
+// Manueller Kickstart: Mensch kann den Bot jederzeit zwingen, sofort zu entscheiden
+function kickstartBot(data){
+  resolving = false; // erzwingt Reset, falls irgendwo hängengeblieben
+  const cats = getCats(data.settings);
+  if(data.phase==='choosing'){
+    const active = data.currentPlayer;
+    if(!isBot(active, data)) return;
+    beginResolving();
+    executeBotChoosingTurn(data, active, cats);
+  } else if(data.phase==='selecting'){
+    const pending = (data.pendingSelectors||[]).filter(id=>!(data.roundCard||{})[id]);
+    const botPending = pending.filter(id=>isBot(id, data));
+    if(botPending.length===0) return;
+    const cat = cats.find(c=>c.key===data.chosenCategory);
+    beginResolving();
+    executeBotSelectingTurn(data, botPending, cat);
+  }
+}
+
 function runBotLogic(data){
   if(data.hostId!==myId || resolving) return;
   const cats = getCats(data.settings);
@@ -798,28 +859,7 @@ function runBotLogic(data){
     const queue = (data.queues||{})[active]||[];
     if(queue.length===0) return;
     beginResolving();
-    setTimeout(()=>{
-      try{
-        if(eligibleForFan(active, data)){
-          const pick = botBestCardCategory(queue, cats);
-          roomRef.update({['roundCard/'+active]: pick.cardId}).then(()=>{
-            chooseCategory(data, pick.catKey, active);
-          }).catch(err=>{
-            console.error('Bot-Fehler (Kartenwahl):', err);
-            resolving=false;
-            if(lastRoomData) renderRoom(lastRoomData);
-          });
-        } else {
-          const card = CARD_MAP[queue[0]];
-          const catKey = botChooseCategory(card, cats);
-          chooseCategory(data, catKey, active);
-        }
-      } catch(e){
-        console.error('Bot-Fehler (Kategoriewahl):', e);
-        resolving=false;
-        if(lastRoomData) renderRoom(lastRoomData);
-      }
-    }, 3000);
+    setTimeout(()=>executeBotChoosingTurn(data, active, cats), 3000);
     return;
   }
 
@@ -829,24 +869,7 @@ function runBotLogic(data){
     if(botPending.length===0) return;
     beginResolving();
     const cat = cats.find(c=>c.key===data.chosenCategory);
-    setTimeout(()=>{
-      try{
-        const updates = {};
-        botPending.forEach(id=>{
-          const q = (data.queues||{})[id]||[];
-          updates['roundCard/'+id] = botBestCardForCategory(q, cat);
-        });
-        roomRef.update(updates).then(()=>{ resolving=false; }).catch(err=>{
-          console.error('Bot-Fehler (Fächerwahl):', err);
-          resolving=false;
-          if(lastRoomData) renderRoom(lastRoomData);
-        });
-      } catch(e){
-        console.error('Bot-Fehler (Fächerwahl):', e);
-        resolving=false;
-        if(lastRoomData) renderRoom(lastRoomData);
-      }
-    }, 3000);
+    setTimeout(()=>executeBotSelectingTurn(data, botPending, cat), 3000);
     return;
   }
 
@@ -868,13 +891,18 @@ function renderChoosingPhase(data, cats, myQueue, isMyTurn, activeName){
     return `<div class="turn-banner">🎯 Du bist dran! Wähle eine Kategorie.</div>${cardStackWrap(renderBeerCard(myCard, true, cats), myQueue.length)}`;
   }
   const banner = `<div class="turn-banner">${activeName} überlegt gerade…</div>`;
+  const kickstart = (isBot(data.currentPlayer, data) && data.hostId===myId)
+    ? `<button class="btn-secondary" id="kickstartBtn">⚡ Bot jetzt entscheiden lassen</button>`
+    : '';
   if(eligibleForFan(myId, data)){
-    return banner + `<div class="card-panel hint">Du darfst gleich (nach der Kategorie-Wahl) aus deinen letzten ${myQueue.length} Karten wählen.</div>`;
+    return banner + kickstart + `<div class="card-panel hint">Du darfst gleich (nach der Kategorie-Wahl) aus deinen letzten ${myQueue.length} Karten wählen.</div>`;
   }
   const myCard = CARD_MAP[myQueue[0]];
-  return banner + cardStackWrap(renderBeerCard(myCard, false, cats), myQueue.length);
+  return banner + kickstart + cardStackWrap(renderBeerCard(myCard, false, cats), myQueue.length);
 }
 function attachChoosingHandlers(data, isMyTurn){
+  const kickBtn = document.getElementById('kickstartBtn');
+  if(kickBtn) kickBtn.onclick = ()=>kickstartBot(data);
   if(!isMyTurn) return;
   if(eligibleForFan(myId, data)){
     attachFanHandlers((cardId)=>{ roomRef.update({['roundCard/'+myId]: cardId}); });
@@ -928,9 +956,13 @@ function renderSelectingPhase(data, cats){
       </div>`;
   }
   return `<div class="turn-banner">Kategorie: ${cat.label}</div>
-    <div class="card-panel"><div class="hint">Warte auf: ${pending.map(id=>players[id]?players[id].name:'?').join(', ')||'…'}</div></div>`;
+    <div class="card-panel"><div class="hint">Warte auf: ${pending.map(id=>players[id]?players[id].name:'?').join(', ')||'…'}</div>
+    ${pending.some(id=>isBot(id,data)) && data.hostId===myId ? `<button class="btn-secondary" id="kickstartBtn" style="margin-top:8px;">⚡ Bot jetzt entscheiden lassen</button>` : ''}
+    </div>`;
 }
 function attachSelectingHandlers(data){
+  const kickBtn = document.getElementById('kickstartBtn');
+  if(kickBtn) kickBtn.onclick = ()=>kickstartBot(data);
   const pending = (data.pendingSelectors||[]).filter(id=>!(data.roundCard||{})[id]);
   if(pending.includes(myId)){
     attachFanHandlers((cardId)=>{ roomRef.update({['roundCard/'+myId]: cardId}); });
@@ -980,7 +1012,7 @@ function renderResultTie(data, cats){
   data.order.forEach(id=>{
     if(!(id in reveal)) return;
     const c = CARD_MAP[reveal[id]];
-    html += `<div class="mini-card ${id===myId?'you-row':''}"><span>${players[id]?players[id].name:'?'}${id===myId?' (du)':''}</span><span class="val">${fmtVal(cat,c[data.chosenCategory])}</span></div>`;
+    html += `<div class="mini-card ${id===myId?'you-row':''}"><span>${players[id]?players[id].name:'?'}${id===myId?' (du)':''}<br><span style="opacity:.6; font-size:11px;">${c.name}</span></span><span class="val">${fmtVal(cat,c[data.chosenCategory])}</span></div>`;
   });
   html += `<div class="pot-note">Gleichstand! Karten wandern in den Pott, nächste Runde direkt weiter…</div>`;
   const buttonOwner = isBot(data._resolverId, data) ? data.hostId : data._resolverId;
@@ -1002,7 +1034,7 @@ function renderResultNonTie(data, cats){
     const c = CARD_MAP[reveal[id]];
     const isWinner = id===winnerId;
     html += `<div class="mini-card ${isWinner?'win-row':''} ${id===myId?'you-row':''}">
-      <span>${isWinner?'🏆 ':''}${players[id]?players[id].name:'?'}${id===myId?' (du)':''}</span>
+      <span>${isWinner?'🏆 ':''}${players[id]?players[id].name:'?'}${id===myId?' (du)':''}<br><span style="opacity:.6; font-size:11px;">${c.name}</span></span>
       <span class="val">${fmtVal(cat, c[data.chosenCategory])}</span></div>`;
   });
   const wName = players[winnerId] ? players[winnerId].name : '?';
