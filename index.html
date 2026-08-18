@@ -371,12 +371,22 @@ let roomRef = null;
 let roomListener = null;
 let lastRoomData = null;
 let resolving = false;
+let resolvingSince = 0;
 let previewOpen = false;
 let previewIdx = 0;
 
 const app = document.getElementById('app');
 const subtitle = document.getElementById('subtitle');
 const footnote = document.getElementById('footnote');
+
+function beginResolving(){ resolving = true; resolvingSince = Date.now(); }
+// Absicherung: falls eine Firebase-Schreibaktion mal hängen bleibt, nicht dauerhaft blockieren
+setInterval(()=>{
+  if(resolving && Date.now()-resolvingSince>4000){
+    resolving = false;
+    if(lastRoomData) renderRoom(lastRoomData);
+  }
+}, 1000);
 
 function shuffle(arr){
   const a=[...arr];
@@ -771,7 +781,7 @@ function renderGame(data){
     const resolverIsBotViaHost = data.hostId===myId && isBot(data._resolverId, data);
     if(resolverIsMe || resolverIsBotViaHost){
       const stillPending = (data.pendingSelectors||[]).filter(id=>!roundCard[id]);
-      if(stillPending.length===0){ resolving=true; finalizeReveal(data, data.chosenCategory, data._resolverId); }
+      if(stillPending.length===0){ beginResolving(); finalizeReveal(data, data.chosenCategory, data._resolverId); }
     }
   }
   runBotLogic(data);
@@ -787,19 +797,21 @@ function runBotLogic(data){
     if(!isBot(active, data)) return;
     const queue = (data.queues||{})[active]||[];
     if(queue.length===0) return;
-    resolving = true;
+    beginResolving();
     setTimeout(()=>{
-      if(eligibleForFan(active, data)){
-        const pick = botBestCardCategory(queue, cats);
-        roomRef.update({['roundCard/'+active]: pick.cardId}).then(()=>{
-          chooseCategory(data, pick.catKey, active);
-        });
-      } else {
-        const card = CARD_MAP[queue[0]];
-        const catKey = botChooseCategory(card, cats);
-        chooseCategory(data, catKey, active);
-      }
-    }, 1300);
+      try{
+        if(eligibleForFan(active, data)){
+          const pick = botBestCardCategory(queue, cats);
+          roomRef.update({['roundCard/'+active]: pick.cardId}).then(()=>{
+            chooseCategory(data, pick.catKey, active);
+          }).catch(()=>{ resolving=false; });
+        } else {
+          const card = CARD_MAP[queue[0]];
+          const catKey = botChooseCategory(card, cats);
+          chooseCategory(data, catKey, active);
+        }
+      } catch(e){ resolving=false; }
+    }, 600);
     return;
   }
 
@@ -807,25 +819,22 @@ function runBotLogic(data){
     const pending = (data.pendingSelectors||[]).filter(id=>!(data.roundCard||{})[id]);
     const botPending = pending.filter(id=>isBot(id, data));
     if(botPending.length===0) return;
-    resolving = true;
+    beginResolving();
     const cat = cats.find(c=>c.key===data.chosenCategory);
     setTimeout(()=>{
-      const updates = {};
-      botPending.forEach(id=>{
-        const q = (data.queues||{})[id]||[];
-        updates['roundCard/'+id] = botBestCardForCategory(q, cat);
-      });
-      roomRef.update(updates).then(()=>{ resolving=false; });
-    }, 1000);
+      try{
+        const updates = {};
+        botPending.forEach(id=>{
+          const q = (data.queues||{})[id]||[];
+          updates['roundCard/'+id] = botBestCardForCategory(q, cat);
+        });
+        roomRef.update(updates).then(()=>{ resolving=false; }).catch(()=>{ resolving=false; });
+      } catch(e){ resolving=false; }
+    }, 500);
     return;
   }
 
-  if(data.phase==='result' && data.lastResult){
-    const resolverId = data.lastResult.tie ? data._resolverId : data.lastResult.winnerId;
-    if(!isBot(resolverId, data)) return;
-    resolving = true;
-    setTimeout(()=>advanceAfterResult(data), 1400);
-  }
+  // Kein automatisches Weiterklicken für Bots — das übernimmt der Mensch per "Weiter"-Button.
 }
 
 function renderChoosingPhase(data, cats, myQueue, isMyTurn, activeName){
@@ -857,7 +866,7 @@ function attachChoosingHandlers(data, isMyTurn){
     document.querySelectorAll('.stat-row.pickable').forEach(el=>{
       el.onclick = ()=>{
         if(resolving) return;
-        resolving=true;
+        beginResolving();
         chooseCategory(data, el.dataset.cat);
       };
     });
@@ -949,7 +958,8 @@ function renderResultTie(data, cats){
     html += `<div class="mini-card ${id===myId?'you-row':''}"><span>${players[id]?players[id].name:'?'}${id===myId?' (du)':''}</span><span class="val">${fmtVal(cat,c[data.chosenCategory])}</span></div>`;
   });
   html += `<div class="pot-note">Gleichstand! Karten wandern in den Pott, nächste Runde direkt weiter…</div>`;
-  if(data._resolverId===myId){
+  const buttonOwner = isBot(data._resolverId, data) ? data.hostId : data._resolverId;
+  if(buttonOwner===myId){
     html += `<button class="btn-primary" id="continueBtn">Weiter ➡️</button>`;
   } else {
     html += `<div class="hint">Warte, bis es weitergeht…</div>`;
@@ -972,10 +982,11 @@ function renderResultNonTie(data, cats){
   });
   const wName = players[winnerId] ? players[winnerId].name : '?';
   html += `<div class="result-msg">${wName} kassiert alle Karten!</div>`;
-  if(winnerId===myId){
+  const buttonOwner = isBot(winnerId, data) ? data.hostId : winnerId;
+  if(buttonOwner===myId){
     html += `<button class="btn-primary" id="continueBtn">Weiter ➡️</button>`;
   } else {
-    html += `<div class="hint">Warte auf ${wName}…</div>`;
+    html += `<div class="hint">Warte auf ${players[buttonOwner]?players[buttonOwner].name:'?'}…</div>`;
   }
   html += `</div>`;
   return html;
@@ -985,7 +996,7 @@ function attachResultHandlers(data){
   if(btn){
     btn.onclick = ()=>{
       if(resolving) return;
-      resolving = true;
+      beginResolving();
       advanceAfterResult(data);
     };
   }
