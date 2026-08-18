@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Lecker Bierchen Quartett</title>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<style>
+:root{
+  --bg-deep:#20242f;
+  --bg-panel:#2b3040;
+  --gold-1:#ffd24c;
+  --gold-2:#f5a623;
+  --foam:#f6f4ef;
+  --brown:#5c3a21;
+  --brown-dark:#3d2513;
+  --red:#c0392b;
+  --green:#3fae6a;
+  --text-dim:#a9adc1;
+  --blue:#1e88e5;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;}
+body{
+  font-family: 'Arial Narrow', Arial, sans-serif;
+  background:
+    radial-gradient(circle at 20% -10%, #3a4054 0%, transparent 55%),
+    radial-gradient(circle at 100% 110%, #33384a 0%, transparent 50%),
+    var(--bg-deep);
+  color:var(--foam);
+  min-height:100vh;
+  overflow-x:hidden;
+}
+.wrap{max-width:520px;margin:0 auto;padding:18px 16px 60px;position:relative;}
+h1,h2,h3{font-family:'Arial Black', Arial, sans-serif; letter-spacing:0.5px; margin:0;}
+.brand{text-align:center;margin:10px 0 22px;}
+.brand .eyebrow{font-size:11px; letter-spacing:4px; color:var(--gold-2); text-transform:uppercase; margin-bottom:4px;}
+.brand h1{
+  font-size:34px; line-height:0.95; text-transform:uppercase;
+  background:linear-gradient(180deg, var(--gold-1) 0%, var(--gold-2) 55%, #c8781a 100%);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.brand .sub{color:var(--text-dim); font-size:13px; margin-top:6px;}
+
+.card-panel{
+  background:var(--bg-panel); border-radius:18px; padding:20px;
+  box-shadow:0 10px 30px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.04);
+  margin-bottom:16px;
+}
+label{display:block; font-size:12px; color:var(--text-dim); margin-bottom:6px; letter-spacing:0.5px; text-transform:uppercase;}
+input[type=text]{
+  width:100%; padding:13px 14px; border-radius:10px; border:1px solid #454b60;
+  background:#1c2029; color:var(--foam); font-size:16px; margin-bottom:14px; letter-spacing:1px;
+}
+input[type=text]:focus{outline:2px solid var(--gold-2); border-color:transparent;}
+
+button{font-family:inherit; cursor:pointer; border:none; border-radius:12px; font-weight:700; letter-spacing:0.3px;}
+.btn-primary{
+  width:100%; padding:15px; font-size:16px;
+  background:linear-gradient(180deg, var(--gold-1), var(--gold-2));
+  color:#3a2205; box-shadow:0 6px 0 #b5750f, 0 10px 18px rgba(0,0,0,0.3);
+}
+.btn-primary:active{transform:translateY(3px); box-shadow:0 3px 0 #b5750f;}
+.btn-secondary{
+  width:100%; padding:13px; font-size:14px; margin-top:10px;
+  background:transparent; color:var(--gold-1); border:1.5px solid #454b60;
+}
+.btn-secondary:active{background:rgba(255,255,255,0.05);}
+button:disabled{opacity:0.4; cursor:not-allowed;}
+
+.divider{display:flex; align-items:center; gap:10px; margin:18px 0; color:var(--text-dim); font-size:12px;}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:#454b60;}
+
+.player-list{list-style:none; margin:0; padding:0;}
+.player-list li{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:10px 14px; background:#1c2029; border-radius:10px; margin-bottom:8px; font-size:15px;
+}
+.player-list .badge{font-size:10px; background:var(--gold-2); color:#3a2205; padding:2px 8px; border-radius:20px; letter-spacing:0.5px;}
+
+.room-code{
+  text-align:center; font-size:30px; font-weight:900; letter-spacing:10px;
+  color:var(--gold-1); background:#1c2029; border-radius:12px; padding:14px 0; margin-bottom:8px;
+  border:1px dashed #59607a;
+}
+.hint{text-align:center; color:var(--text-dim); font-size:12px; margin-bottom:10px;}
+
+/* --- Regler / Toggle-Switch --- */
+.toggle-row{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 0; border-bottom:1px solid #3a3f52;}
+.toggle-row:last-child{border-bottom:none;}
+.toggle-row .trlabel{font-size:14px; font-weight:700;}
+.toggle-row .trsub{font-size:11px; color:var(--text-dim); margin-top:2px;}
+.toggle-row .trstate{font-size:11px; color:var(--gold-2); font-weight:700; text-align:right; min-width:92px;}
+.switch{position:relative; display:inline-block; width:50px; height:28px; flex:0 0 auto;}
+.switch input{opacity:0; width:0; height:0;}
+.switch .slider{position:absolute; inset:0; background:#454b60; border-radius:30px; transition:.2s; cursor:pointer;}
+.switch .slider::before{content:""; position:absolute; height:22px; width:22px; left:3px; top:3px; background:white; border-radius:50%; transition:.2s;}
+.switch input:checked + .slider{background:var(--blue);}
+.switch input:checked + .slider::before{transform:translateX(22px);}
+.switch input:disabled + .slider{opacity:0.5; cursor:default;}
+
+/* --- Karten --- */
+.beer-card{
+  background:linear-gradient(180deg, var(--gold-2) 0%, #d9860f 100%);
+  border-radius:16px; padding:16px; position:relative; margin-bottom:14px;
+  box-shadow:0 8px 20px rgba(0,0,0,0.35);
+}
+.beer-card .tag{
+  position:absolute; top:-10px; right:14px; background:var(--brown-dark); color:var(--gold-1);
+  padding:4px 10px; border-radius:6px; font-size:12px; font-weight:800; box-shadow:0 3px 6px rgba(0,0,0,0.3);
+}
+.beer-card .name{
+  background:var(--foam); color:#22252f; text-align:center; font-weight:900; font-size:18px;
+  padding:10px 8px; border-radius:10px; text-transform:uppercase; margin-bottom:12px; letter-spacing:0.3px;
+}
+.card-photo{
+  position:relative; width:100%; aspect-ratio:4/3; border-radius:12px; overflow:hidden;
+  background:rgba(0,0,0,0.15); border:3px solid var(--foam); margin-bottom:10px;
+  display:flex; align-items:center; justify-content:center; box-shadow:inset 0 0 0 1px rgba(0,0,0,0.15);
+}
+.card-photo img{width:100%; height:100%; object-fit:cover; display:block;}
+.card-photo .photo-fallback{display:none; font-size:46px;}
+.card-photo.no-photo .photo-fallback{display:flex;}
+
+.stat-row{
+  display:flex; align-items:center; justify-content:space-between;
+  background:rgba(255,255,255,0.92); color:#22252f; border-radius:8px;
+  padding:8px 12px; margin-bottom:7px; font-size:14px; font-weight:700;
+}
+.stat-row.pickable{cursor:pointer; transition:transform .12s;}
+.stat-row.pickable:active{transform:scale(0.97);}
+.stat-row .arrow{font-size:11px; color:#8a6d00;}
+.beer-card .tagline{color:#3a2205; font-size:12px; font-weight:700; margin-top:8px;}
+.beer-card .flavor{color:#4a3210; font-size:11.5px; line-height:1.4; margin-top:4px;}
+
+.turn-banner{
+  text-align:center; padding:10px; border-radius:10px; background:#1c2029; margin-bottom:14px;
+  font-size:14px; color:var(--gold-1); font-weight:700;
+}
+.mini-card{
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  background:#1c2029; border-radius:10px; padding:9px 12px; margin-bottom:7px; font-size:13px;
+}
+.mini-card .val{font-weight:900; color:var(--gold-1); font-size:16px;}
+.mini-card.you-row{border:1px solid var(--gold-2);}
+.mini-card.win-row{border:1px solid var(--green); background:#20302a;}
+
+.result-msg{text-align:center; font-size:16px; font-weight:800; color:var(--gold-1); margin:10px 0 14px;}
+.pot-note{text-align:center; font-size:12px; color:var(--red); margin-bottom:10px; font-weight:700;}
+.error-msg{color:#ff8a80; font-size:13px; margin:-6px 0 12px; text-align:center;}
+
+/* --- Kartenfächer (Sicherer Modus) --- */
+.fan-wrap{display:flex; justify-content:center; align-items:flex-end; padding:22px 0 10px; min-height:180px;}
+.fan-card{
+  width:80px; background:linear-gradient(180deg,var(--gold-2),#d9860f); border-radius:10px; padding:6px;
+  margin-left:-20px; transform:rotate(var(--rot,0deg)); transition:.15s ease; box-shadow:0 4px 10px rgba(0,0,0,.3);
+  cursor:pointer;
+}
+.fan-card:first-child{margin-left:0;}
+.fan-card.fan-selected{
+  transform:translateY(-18px) scale(1.18) !important; box-shadow:0 0 0 3px var(--gold-1), 0 10px 22px rgba(0,0,0,.45);
+  z-index:5; margin-left:4px; margin-right:4px;
+}
+.fan-photo{width:100%; aspect-ratio:3/4; border-radius:6px; overflow:hidden; background:rgba(0,0,0,.15); display:flex; align-items:center; justify-content:center; margin-bottom:4px;}
+.fan-photo img{width:100%; height:100%; object-fit:cover;}
+.fan-fallback{display:none; font-size:24px;}
+.fan-photo.no-photo .fan-fallback{display:flex;}
+.fan-name{font-size:8.5px; font-weight:700; color:#3a2205; text-align:center; line-height:1.15;}
+
+/* --- Wisch-Karte --- */
+.swipe-zone{background:#1c2029; border-radius:14px; padding:12px; overflow:hidden; position:relative;}
+.swipe-card{
+  background:linear-gradient(180deg,var(--gold-2),#d9860f); border-radius:10px; padding:14px 16px;
+  display:flex; justify-content:space-between; align-items:center; font-weight:700; color:#3a2205;
+  touch-action:pan-y; cursor:grab; position:relative; left:0; transition:left .2s, opacity .2s; user-select:none;
+}
+.swipe-card .val{color:#3a2205; font-size:16px;}
+.swipe-hint{text-align:center; font-size:11px; color:var(--text-dim); margin-top:8px;}
+
+/* --- Popup --- */
+.popup-overlay{position:fixed; inset:0; background:rgba(0,0,0,0.62); display:flex; align-items:center; justify-content:center; z-index:60; padding:20px;}
+.popup-box{background:var(--bg-panel); border-radius:16px; padding:22px; max-width:340px; width:100%; text-align:center; box-shadow:0 20px 50px rgba(0,0,0,.5);}
+.popup-box h3{font-size:16px; margin-bottom:14px; color:var(--gold-1);}
+.popup-player-btn{display:block; width:100%; padding:13px; margin-bottom:8px; border-radius:10px; background:#1c2029; color:var(--foam); font-size:15px; border:1px solid #454b60;}
+.popup-player-btn.shake{animation:shake .4s;}
+@keyframes shake{25%{transform:translateX(-6px);}75%{transform:translateX(6px);}}
+.popup-err{color:#ff8a80; font-size:12px; margin-bottom:10px;}
+
+.bubbles{position:fixed; inset:0; pointer-events:none; z-index:0; overflow:hidden;}
+.bubble{position:absolute; bottom:-30px; background:rgba(245,166,35,0.18); border-radius:50%; animation:rise linear infinite;}
+@keyframes rise{to{transform:translateY(-110vh);}}
+.footer-note{text-align:center; font-size:11px; color:#5c6178; margin-top:20px;}
+.winner-screen{text-align:center; padding:30px 0;}
+.winner-screen .trophy{font-size:64px;}
+.winner-screen h2{font-size:26px; color:var(--gold-1); margin:10px 0;}
+</style>
+</head>
+<body>
+<div class="bubbles" id="bubbles"></div>
+<div class="wrap">
+  <div class="brand">
+    <div class="eyebrow">Das</div>
+    <h1>Lecker Bierchen<br>Quartett</h1>
+    <div class="sub" id="subtitle">Online gegen deine Kumpels</div>
+  </div>
+  <div id="app"></div>
+  <div class="footer-note" id="footnote"></div>
+</div>
+
+<script>
+/* ============ AMBIENT BUBBLES ============ */
+(function(){
+  const c = document.getElementById('bubbles');
+  for(let i=0;i<18;i++){
+    const b=document.createElement('div');
+    const s=6+Math.random()*22;
+    b.className='bubble';
+    b.style.width=s+'px'; b.style.height=s+'px';
+    b.style.left=Math.random()*100+'%';
+    b.style.animationDuration=(9+Math.random()*10)+'s';
+    b.style.animationDelay=(Math.random()*10)+'s';
+    c.appendChild(b);
+  }
+})();
+
+/* ============ FIREBASE ============ */
+const firebaseConfig = {
+  apiKey: "AIzaSyAQ65P7Om7NJJhogLMdv2e7u0W5UJEluQI",
+  authDomain: "lecker-bierchen-quartett.firebaseapp.com",
+  databaseURL: "https://lecker-bierchen-quartett-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "lecker-bierchen-quartett",
+  storageBucket: "lecker-bierchen-quartett.firebasestorage.app",
+  messagingSenderId: "177597488731",
+  appId: "1:177597488731:web:1233be1353670d554b697e"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+/* ============ KARTEN-DATEN ============ */
+const CARDS = [
+ {id:"feierabend", name:"Feierabend-Bierchen", emoji:"🍾", price:1.00, genuss:8.5, seltenheit:6, eskalation:6, assi:6, tag:"Kalt, golden und vor allem verdient", flavor:"Bereits nach dem ersten Schluck sinkt die Motivation morgen pünktlich im Büro zu erscheinen um 63%."},
+ {id:"stadion", name:"Stadion-Bierchen", emoji:"⚽", price:5.00, genuss:7, seltenheit:6, eskalation:8, assi:5, tag:"Schiri, der hat schon Gelb!", flavor:"Nach Toren befindet man sich regelmäßig in einer Schlechtwetterzone."},
+ {id:"essens", name:"Essens-Bierchen", emoji:"🍽️", price:4.00, genuss:7, seltenheit:4, eskalation:4, assi:4, tag:"Flüssig Brot", flavor:"Genügt manchmal schon als komplette Mahlzeit."},
+ {id:"dusch", name:"Dusch-Bierchen", emoji:"🚿", price:1.00, genuss:5, seltenheit:9, eskalation:3, assi:9, tag:"Erfrischt von innen und außen", flavor:"Verbannt das Shampoo zur nur zweitbesten Flasche im Bad."},
+ {id:"boazn", name:"Boazn-Bierchen", emoji:"🎱", price:3.50, genuss:7, seltenheit:4, eskalation:8.5, assi:9, tag:"Klebrige Tische und ehrliche Gespräche", flavor:"Kommt mit Dauerpiepen vom Spielautomat und Pfeilgeräuschen im Hintergrund."},
+ {id:"gipfel", name:"Gipfel-Bierchen", emoji:"⛰️", price:4.50, genuss:8.5, seltenheit:8, eskalation:2, assi:3.5, tag:"Mehr Höhenmeter als Promille - noch", flavor:"Schmeckt ab 1.500 m besser und ab 2.500 m überragend."},
+ {id:"flughafen", name:"Flughafen-Bierchen", emoji:"✈️", price:6.00, genuss:7.5, seltenheit:8, eskalation:5, assi:8, tag:"Take-Off beginnt im Glas", flavor:"Ist sowohl um 6:23 Uhr als auch um 00:44 Uhr völlig okay."},
+ {id:"vorglueh", name:"Vorglüh-Bierchen", emoji:"🔥", price:1.00, genuss:8, seltenheit:6, eskalation:9, assi:5, tag:"Der Anfang vom Pegel", flavor:"Wird ab dem dritten Bierchen automatisch zur Hauptveranstaltung."},
+ {id:"fruehstueck", name:"Frühstücks-Bierchen", emoji:"🥐", price:1.00, genuss:3.5, seltenheit:8, eskalation:3.5, assi:9, tag:"Weil Kaffee manchmal nicht reicht", flavor:"Hebt Laune, senkt Ansprüche."},
+ {id:"umzug", name:"Umzugs-Bierchen", emoji:"📦", price:0.00, genuss:6.5, seltenheit:9, eskalation:3, assi:4, tag:"Zahlung in Kisten schleppen", flavor:"Verwandelt passive Anwesenheit in gefühlte Leistung."},
+ {id:"unwetter", name:"Unwetter-Bierchen", emoji:"⛈️", price:1.00, genuss:7.5, seltenheit:6, eskalation:1.5, assi:3, tag:"Donner am Himmel, Hopfen im Glas", flavor:"Zählt zum offiziellen Unwetter-Notfallplan."},
+ {id:"heimkehr", name:"Heimkehr-Bierchen", emoji:"🏡", price:1.00, genuss:6, seltenheit:8, eskalation:4, assi:5, tag:"Vom Pool zur Outlook-Inbox", flavor:"Gleicht den Schock beim Blick aufs Konto leicht aus."},
+ {id:"angel", name:"Angel-Bierchen", emoji:"🎣", price:1.00, genuss:7.5, seltenheit:8, eskalation:3, assi:5, tag:"Petri Prost", flavor:"Wird pro Stunde Warten automatisch 0,5l besser."},
+ {id:"fernseh", name:"Fernseh-Bierchen", emoji:"📺", price:1.00, genuss:7, seltenheit:4, eskalation:3, assi:6, tag:"Mehr Inhalt als das Fernsehprogramm", flavor:"Sorgt für Spannung auch wenn keine da ist."},
+ {id:"bett", name:"Bett-Bierchen", emoji:"🛏️", price:1.00, genuss:7, seltenheit:8.5, eskalation:2, assi:9, tag:"Getränkehalter: Linker Oberschenkel", flavor:"Verwandelt Scham in Komfort."},
+ {id:"festival", name:"Festival-Bierchen", emoji:"🎪", price:6.50, genuss:6, seltenheit:8, eskalation:9, assi:8, tag:"Der Headliner im Becher", flavor:"Verliert zwar pro Stunde Geschmack, aber gewinnt pro Schluck an Bedeutung."},
+ {id:"konzert", name:"Konzert-Bierchen", emoji:"🎸", price:5.50, genuss:6.5, seltenheit:7.5, eskalation:6.5, assi:6, tag:"Moshpit, Mikro und Malzgetränk", flavor:"Wird zur Hälfte verschüttet und zur anderen gefeiert."},
+ {id:"kino", name:"Kino-Bierchen", emoji:"🍿", price:5.00, genuss:6, seltenheit:8, eskalation:2, assi:7.5, tag:"Film ab, Flasche auf", flavor:"Wird besser, je schlechter der Film ist."},
+ {id:"weg", name:"Weg-Bierchen", emoji:"🚶", price:1.00, genuss:7.5, seltenheit:4.5, eskalation:6, assi:8, tag:"Dein bester Freund zwischen A und B", flavor:"Stärkt Vorfreude und Blasendruck."},
+ {id:"grill", name:"Grill-Bierchen", emoji:"🍖", price:1.00, genuss:7, seltenheit:6.5, eskalation:3, assi:5.5, tag:"Offizieller Flüssiggrillanzünder", flavor:"Wird selbst beim Wenden nicht aus der Hand gelegt."},
+ {id:"frei", name:"Frei-Bierchen", emoji:"🎁", price:0.00, genuss:10, seltenheit:10, eskalation:10, assi:6, tag:"Das beste Bierchen ist das bezahlte. Von anderen", flavor:"Wird nie abgelehnt. Selbst wenn's lauwarm ist."},
+ {id:"sweet16", name:"Bierchen mit 16", emoji:"🎂", price:1.00, genuss:2, seltenheit:7, eskalation:9, assi:7.5, tag:"Nicht lecker, aber lebensverändernd", flavor:"Wird mit stolzer Brust besorgt und mit zusammengekniffenen Augen getrunken."},
+ {id:"konter", name:"Konter-Bierchen", emoji:"🥊", price:1.00, genuss:2, seltenheit:7, eskalation:5, assi:9.5, tag:"Muss net schmegge, muss wirke", flavor:"Erste Hilfe direkt aus dem Kühlschrank."},
+ {id:"homeoffice", name:"Home-Office-Bierchen", emoji:"💻", price:1.00, genuss:7, seltenheit:7.5, eskalation:2.5, assi:8, tag:"Bier als Betriebssystem", flavor:"Hebt die Stimmung und senkt die Produktivität."},
+ {id:"frust", name:"Frust-Bierchen", emoji:"🌧️", price:4.00, genuss:5, seltenheit:8, eskalation:9, assi:8, tag:"Schluck für Schluck gegen den Tag", flavor:"Redet nicht mit dir und hört dir trotzdem zu."},
+ {id:"dose", name:"Dosen-Bierchen", emoji:"🥫", price:0.75, genuss:4, seltenheit:6, eskalation:8, assi:10, tag:"Das Bierchen der Arbeiterklasse", flavor:"Macht was es soll und das ziemlich zuverlässig."},
+ {id:"strand", name:"Strand-Bierchen", emoji:"🏖️", price:4.00, genuss:8, seltenheit:8, eskalation:7, assi:7, tag:"Party, Palmen und Suff-Suff", flavor:"Kühlt selten nachhaltig, aber knallt immer."},
+ {id:"club", name:"Club-Bierchen", emoji:"🪩", price:5.00, genuss:4.5, seltenheit:6, eskalation:9, assi:7.5, tag:"Grundausrüstung samstags ab 0 Uhr", flavor:"Meist halbleer, aber immer voll im Einsatz."},
+ {id:"wiesn", name:"Wiesn-Bierchen", emoji:"🥨", price:15.00, genuss:7.5, seltenheit:8, eskalation:10, assi:8, tag:"Ein Prosit der Pegelkultur", flavor:"Schmeckt nach Tradition und Lokalpatriotismus."},
+ {id:"malle", name:"Malle-Bierchen", emoji:"🌴", price:7.00, genuss:6, seltenheit:8, eskalation:10, assi:5, tag:"Saufi, Saufi", flavor:"Kommt mit Sonnenstich und neuen Tattoos."},
+ {id:"zug", name:"Zug-Bierchen", emoji:"🚆", price:5.50, genuss:6, seltenheit:8, eskalation:3, assi:8.5, tag:"Der Zug hat keine Bremse", flavor:"Ideal zur Vertonung vorbeiziehender Landschaften."},
+ {id:"see", name:"See-Bierchen", emoji:"🏞️", price:2.00, genuss:8, seltenheit:6, eskalation:7, assi:7, tag:"Für Sonnenanbeter und Schattenliebhaber", flavor:"Schmeckt nach Sonnenuntergang."},
+ {id:"tankstelle", name:"Tankstellen-Bierchen", emoji:"⛽", price:2.50, genuss:6.5, seltenheit:8, eskalation:7, assi:8, tag:"Notfallversorgung in Flaschenform", flavor:"Offiziell nur zur Notsituation, aber inoffiziell ein ganz normaler Dienstagabend."},
+ {id:"badewanne", name:"Badewannen-Bierchen", emoji:"🛁", price:1.00, genuss:6.5, seltenheit:8, eskalation:4, assi:7.5, tag:"Schaum auf dem Bier und in der Wanne", flavor:"Ab dem dritten Schluck kritisch bei nassen Händen."},
+ {id:"urlaubsstart", name:"Urlaubsstart-Bierchen", emoji:"🧳", price:4.50, genuss:8.5, seltenheit:8, eskalation:6.5, assi:4.5, tag:"Zieht besser ein als jede After-Sun", flavor:"Trägt Flip-Flop-Energie in sich."},
+ {id:"nachsport", name:"Nach-dem-Sport-Bierchen", emoji:"🏋️", price:1.00, genuss:9, seltenheit:7, eskalation:3, assi:4, tag:"Kater in den Beinen und im Kopf", flavor:"Gilt unter Freizeitsportlern offiziell als Proteinshake."},
+];
+const CARD_MAP = Object.fromEntries(CARDS.map(c=>[c.id,c]));
+
+function getCats(settings){
+  const lw = (settings && settings.lowWins) || {};
+  return [
+    {key:"price", label:"Preis", lowWins:true},
+    {key:"genuss", label:"Genuss", lowWins:false},
+    {key:"seltenheit", label:"Seltenheit", lowWins:!!lw.seltenheit},
+    {key:"eskalation", label:"Eskalationspotenzial", lowWins:!!lw.eskalation},
+    {key:"assi", label:"Assi-Faktor", lowWins:!!lw.assi},
+  ];
+}
+function defaultSettings(){
+  return { lowWins:{seltenheit:false, eskalation:false, assi:false}, safeMode:false };
+}
+function fmtVal(cat, v){
+  if(cat.key==="price") return v.toFixed(2).replace(".",",")+"€";
+  return (v%1===0? v.toFixed(0): v.toFixed(1).replace(".",",") );
+}
+
+/* ============ STATE ============ */
+let myId = localStorage.getItem('bq_uid') || ('p_'+Math.random().toString(36).slice(2,10));
+localStorage.setItem('bq_uid', myId);
+let myName = localStorage.getItem('bq_name') || '';
+let roomCode = null;
+let roomRef = null;
+let roomListener = null;
+let lastRoomData = null;
+let resolving = false;
+
+const app = document.getElementById('app');
+const subtitle = document.getElementById('subtitle');
+const footnote = document.getElementById('footnote');
+
+function shuffle(arr){
+  const a=[...arr];
+  for(let i=a.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+function genCode(){
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s='';
+  for(let i=0;i<5;i++) s+=chars[Math.floor(Math.random()*chars.length)];
+  return s;
+}
+
+/* ============ RENDER: HOME (Startscreen) ============ */
+function renderHome(){
+  subtitle.textContent = 'Online gegen deine Kumpels';
+  footnote.textContent = '';
+  app.innerHTML = `
+    <div class="card-panel">
+      <label for="nameInput">Dein Name</label>
+      <input id="nameInput" type="text" maxlength="16" placeholder="z.B. Anton" value="${myName.replace(/"/g,'')}">
+      <button class="btn-primary" id="createBtn">🍻 Neuen Raum erstellen</button>
+      <div class="divider">oder</div>
+      <label for="codeInput">Raum-Code beitreten</label>
+      <input id="codeInput" type="text" maxlength="5" placeholder="z.B. XK4P9" style="text-transform:uppercase; letter-spacing:6px; text-align:center;">
+      <button class="btn-primary" id="joinBtn">Beitreten</button>
+      <div class="error-msg" id="err"></div>
+    </div>
+  `;
+  document.getElementById('createBtn').onclick = () => {
+    const n = document.getElementById('nameInput').value.trim();
+    if(!n){ showErr('Gib erst deinen Namen ein.'); return; }
+    myName=n; localStorage.setItem('bq_name', myName);
+    createRoom();
+  };
+  document.getElementById('joinBtn').onclick = () => {
+    const n = document.getElementById('nameInput').value.trim();
+    const c = document.getElementById('codeInput').value.trim().toUpperCase();
+    if(!n){ showErr('Gib erst deinen Namen ein.'); return; }
+    if(c.length<4){ showErr('Bitte gültigen Raum-Code eingeben.'); return; }
+    myName=n; localStorage.setItem('bq_name', myName);
+    joinRoom(c);
+  };
+}
+function showErr(msg){ const e=document.getElementById('err'); if(e) e.textContent = msg; }
+
+function createRoom(){
+  const code = genCode();
+  const ref = db.ref('rooms/'+code);
+  const initial = {
+    hostId: myId,
+    state: 'lobby',
+    createdAt: Date.now(),
+    players: { [myId]: { name: myName, connected:true, joinedAt: Date.now() } },
+    settings: defaultSettings(),
+  };
+  ref.set(initial).then(()=>{ enterRoom(code); }).catch(err=>showErr('Fehler: '+err.message));
+}
+function joinRoom(code){
+  const ref = db.ref('rooms/'+code);
+  ref.get().then(snap=>{
+    if(!snap.exists()){ showErr('Diesen Raum gibt es nicht.'); return; }
+    const data = snap.val();
+    if(data.state && data.state!=='lobby'){ showErr('Das Spiel läuft schon.'); return; }
+    const existingIds = Object.keys(data.players||{});
+    if(!existingIds.includes(myId) && existingIds.length>=4){ showErr('Raum ist voll (max. 4 Spieler).'); return; }
+    ref.child('players/'+myId).set({name:myName, connected:true, joinedAt:Date.now()}).then(()=>{
+      enterRoom(code);
+    });
+  }).catch(err=>showErr('Fehler: '+err.message));
+}
+
+function enterRoom(code){
+  roomCode = code;
+  roomRef = db.ref('rooms/'+code);
+  roomRef.child('players/'+myId+'/connected').onDisconnect().set(false);
+  if(roomListener) roomRef.off('value', roomListener);
+  roomListener = roomRef.on('value', snap=>{
+    lastRoomData = snap.val();
+    if(!lastRoomData){ renderHome(); return; }
+    renderRoom(lastRoomData);
+  });
+}
+
+function renderRoom(data){
+  if(data.state==='lobby') return renderLobby(data);
+  if(data.state==='playing') return renderGame(data);
+  if(data.state==='finished') return renderFinished(data);
+}
+
+/* ============ RENDER: LOBBY (Startscreen mit Reglern) ============ */
+function renderSettingsBlock(settings, editable){
+  const s = settings || defaultSettings();
+  const lw = s.lowWins || {};
+  const rows = [
+    {key:'seltenheit', label:'Seltenheit'},
+    {key:'eskalation', label:'Eskalationspotenzial'},
+    {key:'assi', label:'Assi-Faktor'},
+  ];
+  let html = `<div class="card-panel"><label>Regeln für diese Runde</label>`;
+  rows.forEach(r=>{
+    const checked = !!lw[r.key];
+    html += `<div class="toggle-row">
+      <div class="trlabel">${r.label}</div>
+      <div class="trstate">${checked?'Niedriger gewinnt':'Höher gewinnt'}</div>
+      <label class="switch"><input type="checkbox" data-rule="${r.key}" ${checked?'checked':''} ${editable?'':'disabled'}><span class="slider"></span></label>
+    </div>`;
+  });
+  html += `<div class="toggle-row">
+      <div><div class="trlabel">Sicherer Modus</div><div class="trsub">Bei den letzten 3 Karten selbst wählen</div></div>
+      <label class="switch"><input type="checkbox" id="safeModeToggle" ${s.safeMode?'checked':''} ${editable?'':'disabled'}><span class="slider"></span></label>
+    </div>`;
+  html += `</div>`;
+  return html;
+}
+function attachSettingsHandlers(){
+  document.querySelectorAll('[data-rule]').forEach(inp=>{
+    inp.onchange = ()=> roomRef.update({['settings/lowWins/'+inp.dataset.rule]: inp.checked});
+  });
+  const sm = document.getElementById('safeModeToggle');
+  if(sm) sm.onchange = ()=> roomRef.update({'settings/safeMode': sm.checked});
+}
+
+function renderLobby(data){
+  subtitle.textContent = 'Warteraum';
+  const players = data.players||{};
+  const ids = Object.keys(players);
+  const isHost = data.hostId===myId;
+  footnote.textContent = 'Teile den Code, damit Freunde beitreten können.';
+  app.innerHTML = `
+    <div class="room-code">${roomCode}</div>
+    <div class="hint">Raum-Code — an Freunde weitergeben</div>
+    <div class="card-panel">
+      <label>Mitspieler (${ids.length}/4)</label>
+      <ul class="player-list" id="plist"></ul>
+    </div>
+    ${renderSettingsBlock(data.settings, isHost)}
+    <div class="card-panel">
+      ${isHost
+        ? `<button class="btn-primary" id="startBtn" ${ids.length<2?'disabled':''}>🍺 Runde starten</button>
+           ${ids.length<2 ? '<div class="hint">Mindestens 2 Spieler nötig</div>' : `<div class="hint">${dealHint(ids.length)}</div>`}`
+        : `<div class="hint">Warte, bis der Host startet…</div>`
+      }
+      <button class="btn-secondary" id="leaveBtn">Raum verlassen</button>
+    </div>
+  `;
+  const ul = document.getElementById('plist');
+  ids.forEach(pid=>{
+    const p = players[pid];
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${p.connected===false?'💤 ':'🍻 '}${p.name}${pid===myId?' (du)':''}</span>${pid===data.hostId?'<span class="badge">HOST</span>':''}`;
+    ul.appendChild(li);
+  });
+  if(isHost){
+    attachSettingsHandlers();
+    const btn = document.getElementById('startBtn');
+    if(btn) btn.onclick = ()=>startGame(data);
+  }
+  document.getElementById('leaveBtn').onclick = leaveRoom;
+}
+
+function dealHint(n){
+  const perPlayer = Math.floor(CARDS.length / n);
+  const removed = CARDS.length - perPlayer*n;
+  return `Startspieler zufällig · ${perPlayer} Karten pro Spieler`
+    + (removed>0 ? ` · ${removed} Karte${removed===1?'':'n'} fliegen zufällig raus` : '');
+}
+
+function leaveRoom(){
+  if(roomRef){
+    roomRef.child('players/'+myId).remove();
+    roomRef.off('value', roomListener);
+  }
+  roomCode=null; roomRef=null; lastRoomData=null;
+  renderHome();
+}
+
+function startGame(data){
+  const ids = Object.keys(data.players||{});
+  const total = CARDS.length;
+  const perPlayer = Math.floor(total / ids.length);
+  const usedCount = perPlayer * ids.length;
+  const removedCount = total - usedCount;
+
+  // Falls Karten raus müssen: Home-Office-Bierchen wird zuerst geopfert, Rest zufällig
+  const priorityOut = ['homeoffice'];
+  let toRemove = [];
+  if(removedCount>0){
+    priorityOut.forEach(id=>{ if(toRemove.length<removedCount && CARD_MAP[id]) toRemove.push(id); });
+    let rest = shuffle(CARDS.map(c=>c.id).filter(id=>!toRemove.includes(id)));
+    while(toRemove.length<removedCount){ toRemove.push(rest.pop()); }
+  }
+  const deck = shuffle(CARDS.map(c=>c.id).filter(id=>!toRemove.includes(id)));
+
+  const queues = {};
+  ids.forEach(id=>queues[id]=[]);
+  deck.forEach((cid,i)=>{ queues[ids[i%ids.length]].push(cid); });
+  const order = shuffle(ids); // zufälliger Startspieler = order[0]
+  const update = {
+    state:'playing', order, queues, currentPlayer: order[0], phase:'choosing',
+    chosenCategory:null, potCards:[], revealCards:{}, round:1, lastResult:null,
+    roundCard:{}, pendingSelectors:[], handovers:{}, _resolverId:null,
+    removedCount, perPlayer,
+  };
+  roomRef.update(update);
+}
+
+/* ============ KARTEN-RENDERING ============ */
+function renderPhotoBlock(c, small){
+  return `<div class="${small?'fan-photo':'card-photo'}">
+    <img src="images/${c.id}.jpg" alt="${c.name}"
+         onerror="this.onerror=null;this.style.display='none';this.parentElement.classList.add('no-photo');">
+    <span class="${small?'fan-fallback':'photo-fallback'}">${c.emoji}</span>
+  </div>`;
+}
+function renderBeerCard(c, pickable, cats){
+  let html = `<div class="beer-card">
+    <div class="tag">${fmtVal(cats[0], c.price)}</div>
+    <div class="name">${c.name}</div>
+    ${renderPhotoBlock(c,false)}`;
+  cats.forEach(cat=>{
+    html += `<div class="stat-row ${pickable?'pickable':''}" data-cat="${cat.key}">
+      <span class="k">${cat.label}</span>
+      <span>${fmtVal(cat, c[cat.key])} <span class="arrow">${cat.lowWins?'▼ niedriger gewinnt':'▲ höher gewinnt'}</span></span>
+    </div>`;
+  });
+  html += `<div class="tagline">${c.tag}</div><div class="flavor">${c.flavor}</div></div>`;
+  return html;
+}
+function renderFan(cardIds){
+  let html = '<div class="fan-wrap">';
+  cardIds.forEach(cid=>{
+    const c = CARD_MAP[cid];
+    html += `<div class="fan-card" data-cid="${cid}">
+      ${renderPhotoBlock(c,true)}
+      <div class="fan-name">${c.name}</div>
+    </div>`;
+  });
+  html += '</div>';
+  return html;
+}
+function attachFanHandlers(onConfirm){
+  const cards = document.querySelectorAll('.fan-wrap .fan-card');
+  let selected = null;
+  cards.forEach((el,i)=>{
+    const rot = (i-(cards.length-1)/2)*9;
+    el.style.setProperty('--rot', rot+'deg');
+    el.onclick = ()=>{
+      cards.forEach(x=>x.classList.remove('fan-selected'));
+      el.classList.add('fan-selected');
+      selected = el.dataset.cid;
+      const btn = document.getElementById('fanConfirmBtn');
+      if(btn) btn.disabled=false;
+    };
+  });
+  const btn = document.getElementById('fanConfirmBtn');
+  if(btn) btn.onclick = ()=>{ if(selected) onConfirm(selected); };
+}
+
+/* ============ SPIELLOGIK ============ */
+function eligibleForFan(id, data){
+  const s = data.settings||{};
+  if(!s.safeMode) return false;
+  const q = (data.queues||{})[id]||[];
+  if(q.length===0 || q.length>3) return false;
+  if((data.roundCard||{})[id]) return false;
+  return true;
+}
+
+function renderGame(data){
+  const cats = getCats(data.settings);
+  const players = data.players||{};
+  const order = data.order||[];
+  const queues = data.queues||{};
+  const roundCard = data.roundCard||{};
+  const isMyTurn = data.currentPlayer===myId;
+  const activeName = players[data.currentPlayer] ? players[data.currentPlayer].name : '?';
+
+  subtitle.textContent = `Runde ${data.round||1}`;
+  footnote.textContent = `Raum ${roomCode}`;
+
+  let standings = order.map(id=>({id, name: players[id]?players[id].name:'?', n:(queues[id]||[]).length}));
+  let html = '<div class="card-panel"><label>Kartenstand</label>';
+  standings.forEach(s=>{
+    html += `<div class="mini-card ${s.id===myId?'you-row':''}"><span>${s.id===data.currentPlayer?'👉 ':''}${s.name}${s.id===myId?' (du)':''}</span><span class="val">${s.n}</span></div>`;
+  });
+  html += '</div>';
+
+  const myQueue = queues[myId]||[];
+
+  if(data.phase==='choosing'){
+    html += renderChoosingPhase(data, cats, myQueue, isMyTurn, activeName);
+  } else if(data.phase==='selecting'){
+    html += renderSelectingPhase(data, cats);
+  } else if(data.phase==='result' && data.lastResult){
+    html += data.lastResult.tie ? renderResultTie(data, cats) : renderResultNonTie(data, cats);
+  }
+
+  app.innerHTML = html;
+
+  if(data.phase==='choosing') attachChoosingHandlers(data, isMyTurn);
+  if(data.phase==='selecting') attachSelectingHandlers(data);
+  if(data.phase==='result' && data.lastResult) attachResultHandlers(data);
+
+  // Auto-Fortschritt, wenn alle Auswahlen/Abgaben abgeschlossen sind
+  if(data.phase==='selecting' && data._resolverId===myId && !resolving){
+    const stillPending = (data.pendingSelectors||[]).filter(id=>!roundCard[id]);
+    if(stillPending.length===0){ resolving=true; finalizeReveal(data, data.chosenCategory); }
+  }
+  if(data.phase==='result' && data.lastResult){
+    if(data.lastResult.tie && data._resolverId===myId && !resolving){
+      resolving=true; setTimeout(()=>advanceAfterResult(data), 2600);
+    } else if(!data.lastResult.tie && data.lastResult.winnerId===myId && !resolving){
+      const losers = order.filter(id=> id in (data.revealCards||{}) && id!==data.lastResult.winnerId);
+      const handovers = data.handovers||{};
+      if(losers.every(id=>handovers[id])){ resolving=true; setTimeout(()=>advanceAfterResult(data), 900); }
+    }
+  }
+}
+
+function renderChoosingPhase(data, cats, myQueue, isMyTurn, activeName){
+  if(myQueue.length===0){
+    return `<div class="card-panel"><div class="turn-banner">Du bist raus — keine Karten mehr. Schau zu! 🍺</div></div>`;
+  }
+  if(isMyTurn){
+    if(eligibleForFan(myId, data)){
+      return `<div class="turn-banner">🎯 Du bist dran! Wähle zuerst deine Karte (letzte ${myQueue.length}).</div>
+        <div class="card-panel">${renderFan(myQueue)}
+          <button class="btn-primary" id="fanConfirmBtn" disabled>Diese Karte spielen</button>
+        </div>`;
+    }
+    const myCard = CARD_MAP[(data.roundCard||{})[myId] || myQueue[0]];
+    return `<div class="turn-banner">🎯 Du bist dran! Wähle eine Kategorie.</div>${renderBeerCard(myCard, true, cats)}`;
+  }
+  const banner = `<div class="turn-banner">${activeName} überlegt gerade…</div>`;
+  if(eligibleForFan(myId, data)){
+    return banner + `<div class="card-panel hint">Du darfst gleich (nach der Kategorie-Wahl) aus deinen letzten ${myQueue.length} Karten wählen.</div>`;
+  }
+  const myCard = CARD_MAP[myQueue[0]];
+  return banner + renderBeerCard(myCard, false, cats);
+}
+function attachChoosingHandlers(data, isMyTurn){
+  if(!isMyTurn) return;
+  if(eligibleForFan(myId, data)){
+    attachFanHandlers((cardId)=>{ roomRef.update({['roundCard/'+myId]: cardId}); });
+  } else {
+    document.querySelectorAll('.stat-row.pickable').forEach(el=>{
+      el.onclick = ()=>{
+        if(resolving) return;
+        resolving=true;
+        chooseCategory(data, el.dataset.cat);
+      };
+    });
+  }
+}
+
+function chooseCategory(data, catKey){
+  const order = data.order;
+  const queues = data.queues||{};
+  const roundCard = data.roundCard||{};
+  const safe = data.settings && data.settings.safeMode;
+  const pending = order.filter(id=>{
+    if(id===myId) return false;
+    const q = queues[id]||[];
+    if(q.length===0 || q.length>3) return false;
+    if(!safe) return false;
+    if(roundCard[id]) return false;
+    return true;
+  });
+  if(pending.length===0){
+    finalizeReveal(data, catKey);
+  } else {
+    roomRef.update({ chosenCategory: catKey, phase:'selecting', pendingSelectors: pending, _resolverId: myId })
+      .then(()=>{ resolving=false; });
+  }
+}
+
+function renderSelectingPhase(data, cats){
+  const cat = cats.find(c=>c.key===data.chosenCategory);
+  const pending = (data.pendingSelectors||[]).filter(id=>!(data.roundCard||{})[id]);
+  const players = data.players;
+  if(pending.includes(myId)){
+    const myQueue = (data.queues||{})[myId]||[];
+    return `<div class="turn-banner">Kategorie: ${cat.label} — wähle deine Karte!</div>
+      <div class="card-panel">${renderFan(myQueue)}
+        <button class="btn-primary" id="fanConfirmBtn" disabled>Diese Karte spielen</button>
+      </div>`;
+  }
+  return `<div class="turn-banner">Kategorie: ${cat.label}</div>
+    <div class="card-panel"><div class="hint">Warte auf: ${pending.map(id=>players[id]?players[id].name:'?').join(', ')||'…'}</div></div>`;
+}
+function attachSelectingHandlers(data){
+  const pending = (data.pendingSelectors||[]).filter(id=>!(data.roundCard||{})[id]);
+  if(pending.includes(myId)){
+    attachFanHandlers((cardId)=>{ roomRef.update({['roundCard/'+myId]: cardId}); });
+  }
+}
+
+function finalizeReveal(data, catKey){
+  const cats = getCats(data.settings);
+  const cat = cats.find(c=>c.key===catKey);
+  const order = data.order;
+  const queues = data.queues||{};
+  const roundCard = data.roundCard||{};
+  const reveal = {};
+  order.forEach(id=>{
+    const q = queues[id]||[];
+    if(q.length===0) return;
+    reveal[id] = roundCard[id] || q[0];
+  });
+  let bestId=null, bestVal=null, tie=false;
+  Object.keys(reveal).forEach(id=>{
+    const v = CARD_MAP[reveal[id]][catKey];
+    if(bestVal===null){ bestVal=v; bestId=id; return; }
+    const better = cat.lowWins ? v<bestVal : v>bestVal;
+    const equal = v===bestVal;
+    if(better){ bestVal=v; bestId=id; tie=false; }
+    else if(equal){ tie=true; }
+  });
+  const tiedIds = tie ? Object.keys(reveal).filter(id=>CARD_MAP[reveal[id]][catKey]===bestVal) : [bestId];
+
+  roomRef.update({
+    phase:'result', chosenCategory: catKey, revealCards: reveal,
+    lastResult: { tie, winnerId: tie?null:bestId, tiedIds, wonCount: Object.keys(reveal).length + (data.potCards||[]).length },
+    handovers: {},
+    _resolverId: tie ? myId : bestId,
+  }).then(()=>{ resolving=false; });
+}
+
+function renderResultTie(data, cats){
+  const reveal = data.revealCards||{}; const players = data.players;
+  const cat = cats.find(c=>c.key===data.chosenCategory);
+  let html = `<div class="card-panel"><div class="result-msg">Kategorie: ${cat.label}</div>`;
+  data.order.forEach(id=>{
+    if(!(id in reveal)) return;
+    const c = CARD_MAP[reveal[id]];
+    html += `<div class="mini-card ${id===myId?'you-row':''}"><span>${c.emoji} ${players[id]?players[id].name:'?'}${id===myId?' (du)':''}</span><span class="val">${fmtVal(cat,c[data.chosenCategory])}</span></div>`;
+  });
+  html += `<div class="pot-note">Gleichstand! Karten wandern in den Pott, nächste Runde direkt weiter…</div></div>`;
+  return html;
+}
+function renderResultNonTie(data, cats){
+  const reveal = data.revealCards||{}; const winnerId = data.lastResult.winnerId;
+  const handovers = data.handovers||{}; const players = data.players;
+  const cat = cats.find(c=>c.key===data.chosenCategory);
+  let html = `<div class="card-panel"><div class="result-msg">Kategorie: ${cat.label}</div>`;
+  data.order.forEach(id=>{
+    if(!(id in reveal)) return;
+    const c = CARD_MAP[reveal[id]];
+    const isWinner = id===winnerId; const given = handovers[id];
+    html += `<div class="mini-card ${isWinner?'win-row':''} ${id===myId?'you-row':''}">
+      <span>${isWinner?'🏆 ':''}${c.emoji} ${players[id]?players[id].name:'?'}${id===myId?' (du)':''}${(!isWinner&&given)?' ✅':''}</span>
+      <span class="val">${fmtVal(cat, c[data.chosenCategory])}</span></div>`;
+  });
+  html += `</div>`;
+
+  if(winnerId===myId){
+    const losers = data.order.filter(id=> id in reveal && id!==winnerId);
+    const remaining = losers.filter(id=>!handovers[id]);
+    html += `<div class="turn-banner">Du gewinnst diese Runde! ${remaining.length? 'Warte auf: '+remaining.map(id=>players[id]?players[id].name:'?').join(', ') : 'Alle Karten kommen gleich zu dir.'}</div>`;
+  } else if(!handovers[myId]){
+    const myCard = CARD_MAP[reveal[myId]];
+    html += `<div class="turn-banner">Du hast verloren — gib deine Karte ab!</div>
+      <div class="swipe-zone">
+        <div class="swipe-card" id="swipeCard">
+          <span>${myCard.emoji} ${myCard.name}</span>
+          <span class="val">${fmtVal(cat, myCard[data.chosenCategory])}</span>
+        </div>
+      </div>
+      <div class="swipe-hint">Nach rechts wischen ➡️</div>`;
+  } else {
+    html += `<div class="turn-banner">Abgegeben ✅ Warte auf die anderen…</div>`;
+  }
+  return html;
+}
+function attachResultHandlers(data){
+  if(data.lastResult.tie) return;
+  if(data.lastResult.winnerId===myId) return;
+  if((data.handovers||{})[myId]) return;
+  const sc = document.getElementById('swipeCard');
+  if(sc) attachSwipe(sc, ()=>openHandoverPopup(data));
+}
+
+function attachSwipe(el, onComplete){
+  let startX=0, dx=0, dragging=false;
+  const threshold=90;
+  function down(e){ dragging=true; startX=(e.touches?e.touches[0].clientX:e.clientX); el.style.transition='none'; el.style.cursor='grabbing'; }
+  function move(e){
+    if(!dragging) return;
+    const x=(e.touches?e.touches[0].clientX:e.clientX);
+    dx = Math.max(0, x-startX);
+    el.style.left = dx+'px';
+    el.style.opacity = Math.max(0.3, 1-dx/300);
+  }
+  function up(){
+    if(!dragging) return;
+    dragging=false;
+    el.style.cursor='grab';
+    el.style.transition='left .2s, opacity .2s';
+    if(dx>threshold){
+      el.style.left='340px'; el.style.opacity='0';
+      setTimeout(onComplete, 150);
+    } else {
+      el.style.left='0px'; el.style.opacity='1';
+    }
+    dx=0;
+  }
+  el.addEventListener('mousedown', down);
+  el.addEventListener('touchstart', down, {passive:true});
+  el.addEventListener('mousemove', move);
+  el.addEventListener('touchmove', move, {passive:true});
+  window.addEventListener('mouseup', up);
+  el.addEventListener('touchend', up);
+}
+
+function openHandoverPopup(data){
+  const players = data.players; const winnerId = data.lastResult.winnerId;
+  const others = data.order.filter(id=>id!==myId && id in (data.revealCards||{}));
+  const overlay = document.createElement('div');
+  overlay.className='popup-overlay';
+  overlay.innerHTML = `<div class="popup-box">
+    <h3>Wer hatte den besseren Wert?</h3>
+    <div id="popupBtns"></div>
+    <div class="popup-err" id="popupErr" style="display:none;">Nicht richtig — versuch's nochmal.</div>
+    <button class="btn-secondary" id="popupCancel">Abbrechen</button>
+  </div>`;
+  document.body.appendChild(overlay);
+  const wrap = overlay.querySelector('#popupBtns');
+  others.forEach(id=>{
+    const b = document.createElement('button');
+    b.className='popup-player-btn';
+    b.textContent = players[id] ? players[id].name : '?';
+    b.onclick = ()=>{
+      if(id===winnerId){
+        roomRef.update({['handovers/'+myId]: true}).then(()=>{ if(overlay.parentNode) document.body.removeChild(overlay); });
+      } else {
+        overlay.querySelector('#popupErr').style.display='block';
+        b.classList.add('shake');
+        setTimeout(()=>b.classList.remove('shake'), 400);
+      }
+    };
+    wrap.appendChild(b);
+  });
+  overlay.querySelector('#popupCancel').onclick = ()=>{ if(overlay.parentNode) document.body.removeChild(overlay); };
+}
+
+function advanceAfterResult(data){
+  const order = data.order;
+  const queues = JSON.parse(JSON.stringify(data.queues||{}));
+  const reveal = data.revealCards||{};
+  const roundCard = data.roundCard||{};
+  const pot = [...(data.potCards||[])];
+  const result = data.lastResult;
+
+  Object.keys(reveal).forEach(id=>{
+    const playedId = roundCard[id];
+    if(playedId){
+      queues[id] = (queues[id]||[]).filter(cid=>cid!==playedId);
+    } else {
+      queues[id] = (queues[id]||[]).slice(1);
+    }
+  });
+
+  let nextPlayer, nextPot=[];
+  if(result.tie){
+    nextPot = [...pot, ...Object.values(reveal)];
+    const stillIn = order.filter(id=>(queues[id]||[]).length>0);
+    nextPlayer = stillIn.length? stillIn[0] : order[0];
+  } else {
+    const winner = result.winnerId;
+    const wonCards = [...pot, ...Object.values(reveal)];
+    queues[winner] = [...(queues[winner]||[]), ...shuffle(wonCards)];
+    nextPlayer = winner;
+  }
+
+  const withCards = order.filter(id=>(queues[id]||[]).length>0);
+  if(withCards.length<=1){
+    roomRef.update({ state:'finished', queues, winnerFinal: withCards[0]||nextPlayer, phase:'result' })
+      .then(()=>{ resolving=false; });
+    return;
+  }
+  if((queues[nextPlayer]||[]).length===0){
+    const idx = order.indexOf(nextPlayer);
+    for(let i=1;i<=order.length;i++){
+      const cand = order[(idx+i)%order.length];
+      if((queues[cand]||[]).length>0){ nextPlayer=cand; break; }
+    }
+  }
+
+  roomRef.update({
+    queues, currentPlayer: nextPlayer, phase:'choosing',
+    chosenCategory:null, revealCards:{}, potCards: nextPot,
+    round: (data.round||1)+1, lastResult:null, handovers:{}, roundCard:{}, pendingSelectors:[],
+    _resolverId:null,
+  }).then(()=>{ resolving=false; });
+}
+
+function renderFinished(data){
+  const players = data.players||{};
+  const wName = players[data.winnerFinal] ? players[data.winnerFinal].name : '?';
+  subtitle.textContent = 'Spiel vorbei';
+  footnote.textContent = '';
+  app.innerHTML = `
+    <div class="card-panel winner-screen">
+      <div class="trophy">🏆🍺</div>
+      <h2>${wName} hat alle Bierchen!</h2>
+      <div class="hint">Wer verliert, holt die nächste Runde.</div>
+      <button class="btn-primary" id="againBtn">Nochmal spielen</button>
+      <button class="btn-secondary" id="leaveBtn2">Raum verlassen</button>
+    </div>
+  `;
+  document.getElementById('againBtn').onclick = ()=>{ if(data.hostId===myId){ startGame(data); } };
+  document.getElementById('leaveBtn2').onclick = leaveRoom;
+  if(data.hostId!==myId){ document.getElementById('againBtn').disabled=true; }
+}
+
+/* ============ INIT ============ */
+renderHome();
+</script>
+</body>
+</html>
