@@ -205,6 +205,8 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
   display:flex; align-items:center; justify-content:center; box-shadow:0 4px 12px rgba(0,0,0,.3);
 }
 .exit-fab:active{background:#2b3040;}
+.preview-nav{display:flex; gap:10px; margin-top:6px;}
+.preview-counter{text-align:center; font-size:12px; color:var(--text-dim); margin-bottom:8px;}
 .winner-screen{text-align:center; padding:30px 0;}
 .winner-screen .trophy{font-size:64px;}
 .winner-screen h2{font-size:26px; color:var(--gold-1); margin:10px 0;}
@@ -320,6 +322,8 @@ let roomRef = null;
 let roomListener = null;
 let lastRoomData = null;
 let resolving = false;
+let previewOpen = false;
+let previewIdx = 0;
 
 const app = document.getElementById('app');
 const subtitle = document.getElementById('subtitle');
@@ -409,6 +413,7 @@ function joinRoom(code){
 function enterRoom(code){
   roomCode = code;
   roomRef = db.ref('rooms/'+code);
+  previewOpen = false; previewIdx = 0;
   localStorage.setItem('bq_roomcode', code);
   roomRef.child('players/'+myId+'/connected').set(true);
   roomRef.child('players/'+myId+'/connected').onDisconnect().set(false);
@@ -464,6 +469,19 @@ function attachSettingsHandlers(){
   if(sm) sm.onchange = ()=> roomRef.update({'settings/safeMode': sm.checked});
 }
 
+function renderPreviewPanel(data){
+  const cats = getCats(data.settings);
+  const c = CARDS[previewIdx];
+  return `
+    <div class="preview-counter">Karte ${previewIdx+1} / ${CARDS.length}</div>
+    ${renderBeerCard(c, false, cats)}
+    <div class="preview-nav">
+      <button class="btn-secondary" id="prevPreviewBtn">◀ Zurück</button>
+      <button class="btn-primary" id="nextPreviewBtn">Weiter ▶</button>
+    </div>
+  `;
+}
+
 function renderLobby(data){
   subtitle.textContent = 'Warteraum';
   const players = data.players||{};
@@ -478,6 +496,10 @@ function renderLobby(data){
       <ul class="player-list" id="plist"></ul>
     </div>
     ${renderSettingsBlock(data.settings, isHost)}
+    <div class="card-panel">
+      <button class="btn-secondary" id="previewToggleBtn" style="margin-top:0;">${previewOpen ? '🔽 Vorschau schließen' : '🔍 Karten-Vorschau ansehen'}</button>
+      ${previewOpen ? renderPreviewPanel(data) : ''}
+    </div>
     <div class="card-panel">
       ${isHost
         ? `<button class="btn-primary" id="startBtn" ${ids.length<2?'disabled':''}>🍺 Runde starten</button>
@@ -500,6 +522,21 @@ function renderLobby(data){
     if(btn) btn.onclick = ()=>startGame(data);
   }
   document.getElementById('leaveBtn').onclick = leaveRoom;
+
+  document.getElementById('previewToggleBtn').onclick = ()=>{
+    previewOpen = !previewOpen;
+    renderLobby(data);
+  };
+  if(previewOpen){
+    document.getElementById('prevPreviewBtn').onclick = ()=>{
+      previewIdx = (previewIdx - 1 + CARDS.length) % CARDS.length;
+      renderLobby(data);
+    };
+    document.getElementById('nextPreviewBtn').onclick = ()=>{
+      previewIdx = (previewIdx + 1) % CARDS.length;
+      renderLobby(data);
+    };
+  }
 }
 
 function dealHint(n){
