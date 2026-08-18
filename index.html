@@ -141,6 +141,7 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
 .stat-row.pickable{cursor:pointer; transition:transform .12s;}
 .stat-row.pickable:active{transform:scale(0.97);}
 .stat-row .arrow{font-size:11px; color:#8a6d00;}
+.stat-row.stat-tried{opacity:.4; cursor:not-allowed;}
 .beer-card .tagline{color:#3a2205; font-size:12px; font-weight:700; margin-top:8px;}
 .beer-card .flavor{color:#4a3210; font-size:11.5px; line-height:1.4; margin-top:4px;}
 
@@ -665,7 +666,7 @@ function startGame(data){
   const update = {
     state:'playing', order, queues, currentPlayer: order[0], phase:'choosing',
     chosenCategory:null, potCards:[], revealCards:{}, round:1, lastResult:null,
-    roundCard:{}, pendingSelectors:[], handovers:{}, _resolverId:null,
+    roundCard:{}, pendingSelectors:[], handovers:{}, _resolverId:null, tiebreak:null,
     removedCount, perPlayer,
   };
   roomRef.update(update);
@@ -678,14 +679,17 @@ function renderPhotoBlock(c, small){
          onerror="this.onerror=null;this.style.display='none';">
   </div>`;
 }
-function renderBeerCard(c, pickable, cats){
+function renderBeerCard(c, pickable, cats, disabledKeys){
+  disabledKeys = disabledKeys || [];
   let html = `<div class="beer-card">
     <div class="tag">${fmtVal(cats[0], c.price)}</div>
     <div class="name">${c.name}</div>
     ${renderPhotoBlock(c,false)}`;
   cats.forEach(cat=>{
-    html += `<div class="stat-row ${pickable?'pickable':''}" data-cat="${cat.key}">
-      <span class="k">${cat.label}</span>
+    const isTried = disabledKeys.includes(cat.key);
+    const canPick = pickable && !isTried;
+    html += `<div class="stat-row ${canPick?'pickable':''} ${isTried?'stat-tried':''}" ${canPick?`data-cat="${cat.key}"`:''}>
+      <span class="k">${cat.label}${isTried?' ✓':''}</span>
       <span>${fmtVal(cat, c[cat.key])} <span class="arrow">${cat.lowWins?'▼ niedriger gewinnt':'▲ höher gewinnt'}</span></span>
     </div>`;
   });
@@ -789,18 +793,26 @@ function renderGame(data){
 
 /* ============ BOT-STEUERUNG (übernommen vom Host-Client) ============ */
 function executeBotChoosingTurn(data, active, cats){
+  const tb = data.tiebreak;
+  if(tb){
+    const cardId = tb.cardIds[active];
+    if(!cardId){ resolving=false; return; }
+    const availableCats = cats.filter(c=>!tb.triedCategories.includes(c.key));
+    if(availableCats.length===0){ resolving=false; return; }
+    const catKey = botChooseCategory(CARD_MAP[cardId], availableCats);
+    finalizeReveal(data, catKey, active);
+    return;
+  }
   const queue = (data.queues||{})[active]||[];
   if(queue.length===0){ resolving=false; return; }
   try{
     if(eligibleForFan(active, data)){
       const pick = botBestCardCategory(queue, cats);
-      roomRef.update({['roundCard/'+active]: pick.cardId}).then(()=>{
-        chooseCategory(data, pick.catKey, active);
-      }).catch(err=>{
+      roomRef.update({['roundCard/'+active]: pick.cardId}).catch(err=>{
         console.error('Bot-Fehler (Kartenwahl):', err);
-        resolving=false;
         if(lastRoomData) renderRoom(lastRoomData);
       });
+      chooseCategory(data, pick.catKey, active);
     } else {
       const card = CARD_MAP[queue[0]];
       const catKey = botChooseCategory(card, cats);
@@ -819,11 +831,11 @@ function executeBotSelectingTurn(data, botPending, cat){
       const q = (data.queues||{})[id]||[];
       updates['roundCard/'+id] = botBestCardForCategory(q, cat);
     });
-    roomRef.update(updates).then(()=>{ resolving=false; }).catch(err=>{
+    roomRef.update(updates).catch(err=>{
       console.error('Bot-Fehler (Fächerwahl):', err);
-      resolving=false;
       if(lastRoomData) renderRoom(lastRoomData);
     });
+    resolving = false;
   } catch(e){
     console.error('Bot-Fehler (Fächerwahl):', e);
     resolving=false;
@@ -877,9 +889,30 @@ function runBotLogic(data){
 }
 
 function renderChoosingPhase(data, cats, myQueue, isMyTurn, activeName){
-  if(myQueue.length===0){
+  const tb = data.tiebreak;
+  const iAmInDuel = tb && tb.cardIds[myId];
+  if(myQueue.length===0 && !iAmInDuel){
     return `<div class="card-panel"><div class="turn-banner">Du bist raus — keine Karten mehr. Schau zu! 🍺</div></div>`;
   }
+
+  if(tb){
+    const chooserId = data.currentPlayer;
+    const kickstart = (isBot(chooserId, data) && data.hostId===myId)
+      ? `<button class="btn-secondary" id="kickstartBtn">⚡ Bot jetzt entscheiden lassen</button>` : '';
+    if(myId===chooserId){
+      const card = CARD_MAP[tb.cardIds[chooserId]];
+      return `<div class="turn-banner">🤝 Gleichstand! Wähle eine neue Kategorie für dieselbe Karte.</div>${renderBeerCard(card, true, cats, tb.triedCategories)}`;
+    }
+    const banner = `<div class="turn-banner">Gleichstand — ${activeName} wählt eine neue Kategorie…</div>`;
+    if(iAmInDuel){
+      const myCard = CARD_MAP[tb.cardIds[myId]];
+      return banner + kickstart + renderBeerCard(myCard, false, cats, tb.triedCategories);
+    }
+    if(myQueue.length===0) return banner + kickstart;
+    const myCard = CARD_MAP[myQueue[0]];
+    return banner + kickstart + cardStackWrap(renderBeerCard(myCard, false, cats), myQueue.length);
+  }
+
   if(isMyTurn){
     if(eligibleForFan(myId, data)){
       return `<div class="turn-banner">🎯 Du bist dran! Wähle zuerst deine Karte (letzte ${myQueue.length}).</div>
@@ -904,6 +937,16 @@ function attachChoosingHandlers(data, isMyTurn){
   const kickBtn = document.getElementById('kickstartBtn');
   if(kickBtn) kickBtn.onclick = ()=>kickstartBot(data);
   if(!isMyTurn) return;
+  if(data.tiebreak){
+    document.querySelectorAll('.stat-row.pickable').forEach(el=>{
+      el.onclick = ()=>{
+        if(resolving) return;
+        beginResolving();
+        finalizeReveal(data, el.dataset.cat, myId);
+      };
+    });
+    return;
+  }
   if(eligibleForFan(myId, data)){
     attachFanHandlers((cardId)=>{ roomRef.update({['roundCard/'+myId]: cardId}); });
   } else {
@@ -935,12 +978,11 @@ function chooseCategory(data, catKey, actingId){
     finalizeReveal(data, catKey, actingId);
   } else {
     roomRef.update({ chosenCategory: catKey, phase:'selecting', pendingSelectors: pending, _resolverId: actingId })
-      .then(()=>{ resolving=false; })
       .catch(err=>{
         console.error('Fehler (chooseCategory):', err);
-        resolving=false;
         if(lastRoomData) renderRoom(lastRoomData);
       });
+    resolving = false;
   }
 }
 
@@ -975,13 +1017,21 @@ function finalizeReveal(data, catKey, actingId){
   const cat = cats.find(c=>c.key===catKey);
   const order = data.order;
   const queues = data.queues||{};
-  const roundCard = data.roundCard||{};
-  const reveal = {};
-  order.forEach(id=>{
-    const q = queues[id]||[];
-    if(q.length===0) return;
-    reveal[id] = roundCard[id] || q[0];
-  });
+  const duel = data.tiebreak;
+
+  let reveal;
+  if(duel){
+    reveal = duel.cardIds;
+  } else {
+    const roundCard = data.roundCard||{};
+    reveal = {};
+    order.forEach(id=>{
+      const q = queues[id]||[];
+      if(q.length===0) return;
+      reveal[id] = roundCard[id] || q[0];
+    });
+  }
+
   let bestId=null, bestVal=null, tie=false;
   Object.keys(reveal).forEach(id=>{
     const v = CARD_MAP[reveal[id]][catKey];
@@ -993,16 +1043,52 @@ function finalizeReveal(data, catKey, actingId){
   });
   const tiedIds = tie ? Object.keys(reveal).filter(id=>CARD_MAP[reveal[id]][catKey]===bestVal) : [bestId];
 
+  // Karten der (diesmal) nicht getieteten Spieler wandern in den Seiten-Pott dieser Gleichstand-Kette
+  const sidePot = duel ? {...duel.sidePot} : {};
+  Object.keys(reveal).forEach(id=>{ if(!tiedIds.includes(id)) sidePot[id] = reveal[id]; });
+
+  if(tie){
+    const triedCategories = [...(duel ? duel.triedCategories : []), catKey];
+    const stillTiedCardIds = {};
+    tiedIds.forEach(id=>{ stillTiedCardIds[id] = reveal[id]; });
+
+    if(triedCategories.length>=cats.length){
+      // Alle Kategorien durch, immer noch Gleichstand -> Notausgang: klassischer Pott, neue Karten nächste Runde
+      const combinedReveal = {...sidePot, ...stillTiedCardIds};
+      roomRef.update({
+        phase:'result', chosenCategory: catKey, revealCards: combinedReveal,
+        lastResult: { tie:true, winnerId:null, tiedIds, wonCount: Object.keys(combinedReveal).length + (data.potCards||[]).length },
+        tiebreak: null,
+        _resolverId: actingId,
+      }).catch(err=>{
+        console.error('Fehler (finalizeReveal/exhausted):', err); if(lastRoomData) renderRoom(lastRoomData);
+      });
+      resolving = false;
+      return;
+    }
+
+    roomRef.update({
+      phase:'choosing', chosenCategory:null, lastResult:null,
+      tiebreak: { cardIds: stillTiedCardIds, triedCategories, sidePot },
+    }).catch(err=>{
+      console.error('Fehler (finalizeReveal/tie):', err); if(lastRoomData) renderRoom(lastRoomData);
+    });
+    resolving = false;
+    return;
+  }
+
+  // Entscheidender Gewinner
+  const combinedReveal = {...sidePot, ...reveal};
   roomRef.update({
-    phase:'result', chosenCategory: catKey, revealCards: reveal,
-    lastResult: { tie, winnerId: tie?null:bestId, tiedIds, wonCount: Object.keys(reveal).length + (data.potCards||[]).length },
+    phase:'result', chosenCategory: catKey, revealCards: combinedReveal,
+    lastResult: { tie:false, winnerId:bestId, tiedIds:[bestId], wonCount: Object.keys(combinedReveal).length + (data.potCards||[]).length },
+    tiebreak: null,
     handovers: {},
-    _resolverId: tie ? actingId : bestId,
-  }).then(()=>{ resolving=false; }).catch(err=>{
-    console.error('Fehler (finalizeReveal):', err);
-    resolving=false;
-    if(lastRoomData) renderRoom(lastRoomData);
+    _resolverId: bestId,
+  }).catch(err=>{
+    console.error('Fehler (finalizeReveal):', err); if(lastRoomData) renderRoom(lastRoomData);
   });
+  resolving = false;
 }
 
 function renderResultTie(data, cats){
@@ -1091,8 +1177,8 @@ function advanceAfterResult(data){
   const withCards = order.filter(id=>(queues[id]||[]).length>0);
   if(withCards.length<=1){
     roomRef.update({ state:'finished', queues, winnerFinal: withCards[0]||nextPlayer, phase:'result' })
-      .then(()=>{ resolving=false; })
-      .catch(err=>{ console.error('Fehler (advanceAfterResult/finished):', err); resolving=false; if(lastRoomData) renderRoom(lastRoomData); });
+      .catch(err=>{ console.error('Fehler (advanceAfterResult/finished):', err); if(lastRoomData) renderRoom(lastRoomData); });
+    resolving = false;
     return;
   }
   if((queues[nextPlayer]||[]).length===0){
@@ -1106,10 +1192,10 @@ function advanceAfterResult(data){
   roomRef.update({
     queues, currentPlayer: nextPlayer, phase:'choosing',
     chosenCategory:null, revealCards:{}, potCards: nextPot,
-    round: (data.round||1)+1, lastResult:null, handovers:{}, roundCard:{}, pendingSelectors:[],
+    round: (data.round||1)+1, lastResult:null, handovers:{}, roundCard:{}, pendingSelectors:[], tiebreak:null,
     _resolverId:null,
-  }).then(()=>{ resolving=false; })
-    .catch(err=>{ console.error('Fehler (advanceAfterResult):', err); resolving=false; if(lastRoomData) renderRoom(lastRoomData); });
+  }).catch(err=>{ console.error('Fehler (advanceAfterResult):', err); if(lastRoomData) renderRoom(lastRoomData); });
+  resolving = false;
 }
 
 function renderFinished(data){
