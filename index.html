@@ -120,8 +120,6 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
   display:flex; align-items:center; justify-content:center; box-shadow:inset 0 0 0 1px rgba(0,0,0,0.15);
 }
 .card-photo img{width:100%; height:100%; object-fit:cover; display:block;}
-.card-photo .photo-fallback{display:none; font-size:46px;}
-.card-photo.no-photo .photo-fallback{display:flex;}
 
 .card-stack{position:relative; margin:0 16px 16px 0;}
 .card-stack.stack-1::before{
@@ -176,8 +174,6 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
 }
 .fan-photo{width:100%; aspect-ratio:3/4; border-radius:6px; overflow:hidden; background:rgba(0,0,0,.15); display:flex; align-items:center; justify-content:center; margin-bottom:4px;}
 .fan-photo img{width:100%; height:100%; object-fit:cover;}
-.fan-fallback{display:none; font-size:24px;}
-.fan-photo.no-photo .fan-fallback{display:flex;}
 .fan-name{font-size:8.5px; font-weight:700; color:#3a2205; text-align:center; line-height:1.15;}
 
 /* --- Wisch-Karte --- */
@@ -203,6 +199,12 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
 .bubble{position:absolute; bottom:-30px; background:rgba(245,166,35,0.18); border-radius:50%; animation:rise linear infinite;}
 @keyframes rise{to{transform:translateY(-110vh);}}
 .footer-note{text-align:center; font-size:11px; color:#5c6178; margin-top:20px;}
+.exit-fab{
+  position:fixed; top:14px; right:14px; z-index:40; width:38px; height:38px; border-radius:50%;
+  background:#1c2029; color:var(--text-dim); border:1px solid #454b60; font-size:16px; line-height:1;
+  display:flex; align-items:center; justify-content:center; box-shadow:0 4px 12px rgba(0,0,0,.3);
+}
+.exit-fab:active{background:#2b3040;}
 .winner-screen{text-align:center; padding:30px 0;}
 .winner-screen .trophy{font-size:64px;}
 .winner-screen h2{font-size:26px; color:var(--gold-1); margin:10px 0;}
@@ -210,6 +212,7 @@ button:disabled{opacity:0.4; cursor:not-allowed;}
 </head>
 <body>
 <div class="bubbles" id="bubbles"></div>
+<button id="exitBtn" class="exit-fab" style="display:none;" title="Sitzung verlassen">✕</button>
 <div class="wrap">
   <div class="brand">
     <div class="eyebrow">Das</div>
@@ -337,8 +340,15 @@ function genCode(){
   return s;
 }
 
+function showExitBtn(){ const b=document.getElementById('exitBtn'); if(b) b.style.display='flex'; }
+function hideExitBtn(){ const b=document.getElementById('exitBtn'); if(b) b.style.display='none'; }
+document.getElementById('exitBtn').onclick = ()=>{
+  if(confirm('Sitzung wirklich verlassen?')) leaveRoom();
+};
+
 /* ============ RENDER: HOME (Startscreen) ============ */
 function renderHome(){
+  hideExitBtn();
   subtitle.textContent = 'Online gegen deine Kumpels';
   footnote.textContent = '';
   app.innerHTML = `
@@ -399,11 +409,18 @@ function joinRoom(code){
 function enterRoom(code){
   roomCode = code;
   roomRef = db.ref('rooms/'+code);
+  localStorage.setItem('bq_roomcode', code);
+  roomRef.child('players/'+myId+'/connected').set(true);
   roomRef.child('players/'+myId+'/connected').onDisconnect().set(false);
+  showExitBtn();
   if(roomListener) roomRef.off('value', roomListener);
   roomListener = roomRef.on('value', snap=>{
     lastRoomData = snap.val();
-    if(!lastRoomData){ renderHome(); return; }
+    if(!lastRoomData){
+      localStorage.removeItem('bq_roomcode');
+      renderHome();
+      return;
+    }
     renderRoom(lastRoomData);
   });
 }
@@ -498,6 +515,8 @@ function leaveRoom(){
     roomRef.off('value', roomListener);
   }
   roomCode=null; roomRef=null; lastRoomData=null;
+  localStorage.removeItem('bq_roomcode');
+  hideExitBtn();
   renderHome();
 }
 
@@ -535,8 +554,7 @@ function startGame(data){
 function renderPhotoBlock(c, small){
   return `<div class="${small?'fan-photo':'card-photo'}">
     <img src="images/${c.id}.jpg" alt="${c.name}"
-         onerror="this.onerror=null;this.style.display='none';this.parentElement.classList.add('no-photo');">
-    <span class="${small?'fan-fallback':'photo-fallback'}">${c.emoji}</span>
+         onerror="this.onerror=null;this.style.display='none';">
   </div>`;
 }
 function renderBeerCard(c, pickable, cats){
@@ -759,7 +777,7 @@ function renderResultTie(data, cats){
   data.order.forEach(id=>{
     if(!(id in reveal)) return;
     const c = CARD_MAP[reveal[id]];
-    html += `<div class="mini-card ${id===myId?'you-row':''}"><span>${c.emoji} ${players[id]?players[id].name:'?'}${id===myId?' (du)':''}</span><span class="val">${fmtVal(cat,c[data.chosenCategory])}</span></div>`;
+    html += `<div class="mini-card ${id===myId?'you-row':''}"><span>${players[id]?players[id].name:'?'}${id===myId?' (du)':''}</span><span class="val">${fmtVal(cat,c[data.chosenCategory])}</span></div>`;
   });
   html += `<div class="pot-note">Gleichstand! Karten wandern in den Pott, nächste Runde direkt weiter…</div>`;
   if(data._resolverId===myId){
@@ -780,7 +798,7 @@ function renderResultNonTie(data, cats){
     const c = CARD_MAP[reveal[id]];
     const isWinner = id===winnerId;
     html += `<div class="mini-card ${isWinner?'win-row':''} ${id===myId?'you-row':''}">
-      <span>${isWinner?'🏆 ':''}${c.emoji} ${players[id]?players[id].name:'?'}${id===myId?' (du)':''}</span>
+      <span>${isWinner?'🏆 ':''}${players[id]?players[id].name:'?'}${id===myId?' (du)':''}</span>
       <span class="val">${fmtVal(cat, c[data.chosenCategory])}</span></div>`;
   });
   const wName = players[winnerId] ? players[winnerId].name : '?';
@@ -875,7 +893,12 @@ function renderFinished(data){
 }
 
 /* ============ INIT ============ */
-renderHome();
+const savedRoomCode = localStorage.getItem('bq_roomcode');
+if(savedRoomCode && myName){
+  enterRoom(savedRoomCode);
+} else {
+  renderHome();
+}
 </script>
 </body>
 </html>
