@@ -313,6 +313,55 @@ function fmtVal(cat, v){
   return (v%1===0? v.toFixed(0): v.toFixed(1).replace(".",",") );
 }
 
+/* ============ BOT-LOGIK ============ */
+function isBot(id, data){ return !!(data && data.players && data.players[id] && data.players[id].isBot); }
+
+function computeCategoryMinMax(){
+  const keys = ['price','genuss','seltenheit','eskalation','assi'];
+  const mm = {};
+  keys.forEach(k=>{
+    const vals = CARDS.map(c=>c[k]);
+    mm[k] = { min: Math.min(...vals), max: Math.max(...vals) };
+  });
+  return mm;
+}
+const CATEGORY_MINMAX = computeCategoryMinMax();
+
+// 0..1, 1 = für den Bot bestmöglicher Wert in dieser Kategorie (unter Berücksichtigung höher/niedriger gewinnt)
+function botCategoryScore(card, cat){
+  const mm = CATEGORY_MINMAX[cat.key];
+  const range = (mm.max - mm.min) || 1;
+  const norm = (card[cat.key] - mm.min) / range;
+  return cat.lowWins ? (1 - norm) : norm;
+}
+function pickAmongTiesRandom(list, scoreFn){
+  const scores = list.map(item=>({item, score:scoreFn(item)}));
+  const maxScore = Math.max(...scores.map(s=>s.score));
+  const eps = 1e-9;
+  const best = scores.filter(s=>Math.abs(s.score-maxScore)<eps);
+  return best[Math.floor(Math.random()*best.length)].item;
+}
+// Beste Kategorie für eine feste Karte (bei gleich guten Kategorien 50/50)
+function botChooseCategory(card, cats){
+  const best = pickAmongTiesRandom(cats, cat=>botCategoryScore(card, cat));
+  return best.key;
+}
+// Beste Karte+Kategorie-Kombination aus mehreren verfügbaren Karten (Kartenfächer-Wahl)
+function botBestCardCategory(cardIds, cats){
+  const combos = [];
+  cardIds.forEach(cid=>{
+    const card = CARD_MAP[cid];
+    cats.forEach(cat=>{ combos.push({cardId:cid, catKey:cat.key}); });
+  });
+  const best = pickAmongTiesRandom(combos, combo=>botCategoryScore(CARD_MAP[combo.cardId], cats.find(c=>c.key===combo.catKey)));
+  return best;
+}
+// Beste Karte aus mehreren, für eine bereits feststehende Kategorie
+function botBestCardForCategory(cardIds, cat){
+  const best = pickAmongTiesRandom(cardIds, cid=>botCategoryScore(CARD_MAP[cid], cat));
+  return best;
+}
+
 /* ============ STATE ============ */
 let myId = localStorage.getItem('bq_uid') || ('p_'+Math.random().toString(36).slice(2,10));
 localStorage.setItem('bq_uid', myId);
@@ -482,6 +531,17 @@ function renderPreviewPanel(data){
   `;
 }
 
+function addBot(data){
+  const ids = Object.keys(data.players||{});
+  if(ids.length>=4) return;
+  let n=1;
+  while(ids.includes('bot_'+n)) n++;
+  roomRef.child('players/bot_'+n).set({ name:'Bot '+n, connected:true, isBot:true, joinedAt:Date.now() });
+}
+function removeBot(botId){
+  roomRef.child('players/'+botId).remove();
+}
+
 function renderLobby(data){
   subtitle.textContent = 'Warteraum';
   const players = data.players||{};
@@ -494,6 +554,7 @@ function renderLobby(data){
     <div class="card-panel">
       <label>Mitspieler (${ids.length}/4)</label>
       <ul class="player-list" id="plist"></ul>
+      ${isHost && ids.length<4 ? `<button class="btn-secondary" id="addBotBtn" style="margin-top:2px;">🤖 Bot hinzufügen</button>` : ''}
     </div>
     ${renderSettingsBlock(data.settings, isHost)}
     <div class="card-panel">
@@ -513,13 +574,26 @@ function renderLobby(data){
   ids.forEach(pid=>{
     const p = players[pid];
     const li = document.createElement('li');
-    li.innerHTML = `<span>${p.connected===false?'💤 ':'🍻 '}${p.name}${pid===myId?' (du)':''}</span>${pid===data.hostId?'<span class="badge">HOST</span>':''}`;
+    const statusIcon = p.isBot ? '🤖 ' : (p.connected===false ? '💤 ' : '🍻 ');
+    li.innerHTML = `<span>${statusIcon}${p.name}${pid===myId?' (du)':''}</span>`;
+    if(pid===data.hostId){
+      li.innerHTML += '<span class="badge">HOST</span>';
+    } else if(p.isBot && isHost){
+      const rmBtn = document.createElement('button');
+      rmBtn.textContent = '✕';
+      rmBtn.className = 'btn-secondary';
+      rmBtn.style.cssText = 'width:auto; padding:4px 10px; margin:0; font-size:12px;';
+      rmBtn.onclick = ()=>removeBot(pid);
+      li.appendChild(rmBtn);
+    }
     ul.appendChild(li);
   });
   if(isHost){
     attachSettingsHandlers();
     const btn = document.getElementById('startBtn');
     if(btn) btn.onclick = ()=>startGame(data);
+    const addBotBtn = document.getElementById('addBotBtn');
+    if(addBotBtn) addBotBtn.onclick = ()=>addBot(data);
   }
   document.getElementById('leaveBtn').onclick = leaveRoom;
 
@@ -692,9 +766,65 @@ function renderGame(data){
   if(data.phase==='result' && data.lastResult) attachResultHandlers(data);
 
   // Auto-Fortschritt, wenn alle Auswahlen/Abgaben abgeschlossen sind
-  if(data.phase==='selecting' && data._resolverId===myId && !resolving){
-    const stillPending = (data.pendingSelectors||[]).filter(id=>!roundCard[id]);
-    if(stillPending.length===0){ resolving=true; finalizeReveal(data, data.chosenCategory); }
+  if(data.phase==='selecting' && !resolving){
+    const resolverIsMe = data._resolverId===myId;
+    const resolverIsBotViaHost = data.hostId===myId && isBot(data._resolverId, data);
+    if(resolverIsMe || resolverIsBotViaHost){
+      const stillPending = (data.pendingSelectors||[]).filter(id=>!roundCard[id]);
+      if(stillPending.length===0){ resolving=true; finalizeReveal(data, data.chosenCategory, data._resolverId); }
+    }
+  }
+  runBotLogic(data);
+}
+
+/* ============ BOT-STEUERUNG (übernommen vom Host-Client) ============ */
+function runBotLogic(data){
+  if(data.hostId!==myId || resolving) return;
+  const cats = getCats(data.settings);
+
+  if(data.phase==='choosing'){
+    const active = data.currentPlayer;
+    if(!isBot(active, data)) return;
+    const queue = (data.queues||{})[active]||[];
+    if(queue.length===0) return;
+    resolving = true;
+    setTimeout(()=>{
+      if(eligibleForFan(active, data)){
+        const pick = botBestCardCategory(queue, cats);
+        roomRef.update({['roundCard/'+active]: pick.cardId}).then(()=>{
+          chooseCategory(data, pick.catKey, active);
+        });
+      } else {
+        const card = CARD_MAP[queue[0]];
+        const catKey = botChooseCategory(card, cats);
+        chooseCategory(data, catKey, active);
+      }
+    }, 1300);
+    return;
+  }
+
+  if(data.phase==='selecting'){
+    const pending = (data.pendingSelectors||[]).filter(id=>!(data.roundCard||{})[id]);
+    const botPending = pending.filter(id=>isBot(id, data));
+    if(botPending.length===0) return;
+    resolving = true;
+    const cat = cats.find(c=>c.key===data.chosenCategory);
+    setTimeout(()=>{
+      const updates = {};
+      botPending.forEach(id=>{
+        const q = (data.queues||{})[id]||[];
+        updates['roundCard/'+id] = botBestCardForCategory(q, cat);
+      });
+      roomRef.update(updates).then(()=>{ resolving=false; });
+    }, 1000);
+    return;
+  }
+
+  if(data.phase==='result' && data.lastResult){
+    const resolverId = data.lastResult.tie ? data._resolverId : data.lastResult.winnerId;
+    if(!isBot(resolverId, data)) return;
+    resolving = true;
+    setTimeout(()=>advanceAfterResult(data), 1400);
   }
 }
 
@@ -734,13 +864,14 @@ function attachChoosingHandlers(data, isMyTurn){
   }
 }
 
-function chooseCategory(data, catKey){
+function chooseCategory(data, catKey, actingId){
+  actingId = actingId || myId;
   const order = data.order;
   const queues = data.queues||{};
   const roundCard = data.roundCard||{};
   const safe = data.settings && data.settings.safeMode;
   const pending = order.filter(id=>{
-    if(id===myId) return false;
+    if(id===actingId) return false;
     const q = queues[id]||[];
     if(q.length===0 || q.length>3) return false;
     if(!safe) return false;
@@ -748,9 +879,9 @@ function chooseCategory(data, catKey){
     return true;
   });
   if(pending.length===0){
-    finalizeReveal(data, catKey);
+    finalizeReveal(data, catKey, actingId);
   } else {
-    roomRef.update({ chosenCategory: catKey, phase:'selecting', pendingSelectors: pending, _resolverId: myId })
+    roomRef.update({ chosenCategory: catKey, phase:'selecting', pendingSelectors: pending, _resolverId: actingId })
       .then(()=>{ resolving=false; });
   }
 }
@@ -776,7 +907,8 @@ function attachSelectingHandlers(data){
   }
 }
 
-function finalizeReveal(data, catKey){
+function finalizeReveal(data, catKey, actingId){
+  actingId = actingId || myId;
   const cats = getCats(data.settings);
   const cat = cats.find(c=>c.key===catKey);
   const order = data.order;
@@ -803,7 +935,7 @@ function finalizeReveal(data, catKey){
     phase:'result', chosenCategory: catKey, revealCards: reveal,
     lastResult: { tie, winnerId: tie?null:bestId, tiedIds, wonCount: Object.keys(reveal).length + (data.potCards||[]).length },
     handovers: {},
-    _resolverId: tie ? myId : bestId,
+    _resolverId: tie ? actingId : bestId,
   }).then(()=>{ resolving=false; });
 }
 
