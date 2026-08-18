@@ -1095,7 +1095,7 @@ function finalizeReveal(data, catKey, actingId){
   const combinedReveal = {...sidePot, ...reveal};
   roomRef.update({
     phase:'result', chosenCategory: catKey, revealCards: combinedReveal,
-    lastResult: { tie:false, winnerId:bestId, tiedIds:[bestId], wonCount: Object.keys(combinedReveal).length + (data.potCards||[]).length },
+    lastResult: { tie:false, winnerId:bestId, tiedIds:[bestId], activeIds: Object.keys(reveal), wonCount: Object.keys(combinedReveal).length + (data.potCards||[]).length },
     tiebreak: null,
     handovers: {},
     _resolverId: bestId,
@@ -1127,14 +1127,19 @@ function renderResultTie(data, cats){
 function renderResultNonTie(data, cats){
   const reveal = data.revealCards||{}; const winnerId = data.lastResult.winnerId;
   const players = data.players;
+  const activeIds = data.lastResult.activeIds || Object.keys(reveal);
   const cat = cats.find(c=>c.key===data.chosenCategory);
   let html = `<div class="card-panel"><div class="result-msg">Kategorie: ${cat.label}</div>`;
+  if(activeIds.length < Object.keys(reveal).length){
+    html += `<div class="hint">Gleichstand-Fortsetzung — nur die unten markierten Spieler standen noch im direkten Duell.</div>`;
+  }
   data.order.forEach(id=>{
     if(!(id in reveal)) return;
     const c = CARD_MAP[reveal[id]];
     const isWinner = id===winnerId;
-    html += `<div class="mini-card ${isWinner?'win-row':''} ${id===myId?'you-row':''}">
-      <span>${isWinner?'🏆 ':''}${players[id]?players[id].name:'?'}${id===myId?' (du)':''}<br><span style="opacity:.6; font-size:11px;">${c.name}</span></span>
+    const wasSidelined = !activeIds.includes(id);
+    html += `<div class="mini-card ${isWinner?'win-row':''} ${id===myId?'you-row':''}" style="${wasSidelined?'opacity:.55;':''}">
+      <span>${isWinner?'🏆 ':''}${players[id]?players[id].name:'?'}${id===myId?' (du)':''}${wasSidelined?' <span style="font-size:10px;opacity:.8;">(bereits vorher ausgeschieden)</span>':''}<br><span style="opacity:.6; font-size:11px;">${c.name}</span></span>
       <span class="val">${fmtVal(cat, c[data.chosenCategory])}</span></div>`;
   });
   const wName = players[winnerId] ? players[winnerId].name : '?';
